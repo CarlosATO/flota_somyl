@@ -424,8 +424,9 @@
 .modal-body-pro {
   padding: 2rem;
   overflow-y: auto;
-  flex: 1;
-  min-height: 0; /* IMPORTANTE: permite que el flex funcione correctamente */
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: calc(90vh - 200px); /* ← AGREGAR ESTA LÍNEA */
 }
 
 .modal-error-pro {
