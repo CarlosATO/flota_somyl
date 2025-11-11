@@ -1,26 +1,21 @@
-/* * CSS Profesional y Minimalista para el Módulo de Vehículos
- * Sin Tailwind.
- */
-
 :root {
-  --color-primary: #007bff; /* Azul primario */
+  --color-primary: #007bff;
   --color-primary-hover: #0056b3;
-  --color-secondary: #6c757d; /* Gris secundario */
+  --color-secondary: #6c757d;
   --color-secondary-hover: #545b62;
-  --color-danger: #dc3545; /* Rojo para errores */
-  --color-bg-light: #f8f9fa; /* Fondo claro */
-  --color-border: #dee2e6; /* Bordes */
+  --color-danger: #dc3545;
+  --color-bg-light: #f8f9fa;
+  --color-border: #dee2e6;
   --color-text-dark: #343a40;
   --color-text-light: #6c757d;
   --color-text-required: #e63946;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --border-radius: 0.375rem; /* 6px */
+  --border-radius: 0.375rem;
 }
 
-/* --- Contenedor Principal --- */
 .vehiculos-container {
-  padding: 1.5rem; /* 24px */
+  padding: 1.5rem;
   margin: 1.5rem;
   background-color: #ffffff;
   border-radius: var(--border-radius);
@@ -40,19 +35,18 @@
 
 .vehiculos-header h2 {
   margin: 0;
-  font-size: 1.5rem; /* 24px */
+  font-size: 1.5rem;
   font-weight: 600;
 }
 
-/* --- Botones --- */
 .btn {
-  padding: 0.5rem 1rem; /* 8px 16px */
-  font-size: 0.875rem; /* 14px */
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
   font-weight: 500;
   border: none;
   border-radius: var(--border-radius);
   cursor: pointer;
-  transition: background-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  transition: background-color 0.15s ease-in-out;
   text-decoration: none;
   line-height: 1.5;
 }
@@ -80,19 +74,26 @@
   background-color: var(--color-secondary-hover);
 }
 
-/* --- Formulario --- */
 .form-container {
-  padding: 1.5rem;
+  padding: 1rem;
   background-color: var(--color-bg-light);
   border-radius: var(--border-radius);
   margin-bottom: 1.5rem;
   border: 1px solid var(--color-border);
 }
 
-.form-container h3 {
-  margin-top: 0;
-  margin-bottom: 1rem;
-  font-weight: 600;
+.search-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+.search-input:focus {
+  outline: 0;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
 }
 
 .form-grid {
@@ -107,9 +108,9 @@
 }
 
 .form-group label {
-  font-size: 0.875rem; /* 14px */
+  font-size: 0.875rem;
   font-weight: 500;
-  margin-bottom: 0.5rem; /* 8px */
+  margin-bottom: 0.5rem;
 }
 
 .form-group label span {
@@ -118,29 +119,29 @@
   margin-left: 2px;
 }
 
-.form-group input {
-  padding: 0.5rem 0.75rem; /* 8px 12px */
-  font-size: 1rem; /* 16px */
+.form-group input, .form-group textarea {
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
-  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  transition: border-color 0.15s ease-in-out;
 }
 
-.form-group input:focus {
+.form-group input:focus, .form-group textarea:focus {
   outline: 0;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
 }
 
 .form-actions {
-  margin-top: 1.5rem; /* 24px */
+  margin-top: 1.5rem;
   padding-top: 1.5rem;
   border-top: 1px solid var(--color-border);
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
-/* --- Tabla --- */
 .table-container {
   overflow-x: auto;
   width: 100%;
@@ -150,11 +151,11 @@
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.875rem; /* 14px */
+  font-size: 0.875rem;
 }
 
 .vehiculos-table thead th {
-  padding: 0.75rem 1rem; /* 12px 16px */
+  padding: 0.75rem 1rem;
   background-color: var(--color-bg-light);
   color: var(--color-text-light);
   font-weight: 600;
@@ -168,41 +169,23 @@
   transition: background-color 0.1s ease;
 }
 
-.vehiculos-table tbody tr:last-child {
-  border-bottom: none;
-}
-
 .vehiculos-table tbody tr:hover {
   background-color: var(--color-bg-light);
 }
 
 .vehiculos-table tbody td {
-  padding: 0.75rem 1rem; /* 12px 16px */
+  padding: 0.75rem 1rem;
   color: var(--color-text-dark);
   vertical-align: middle;
 }
 
-.vehiculos-table tbody td:first-child {
-  font-weight: 500;
-}
-
-/* --- Estados (Error/Loading) --- */
-.form-error {
-  margin-top: 1rem;
+.form-error, .list-error {
   padding: 0.75rem 1.25rem;
   background-color: #f8d7da;
   color: #721c24;
   border: 1px solid #f5c6cb;
   border-radius: var(--border-radius);
-}
-
-.list-error {
-  padding: 0.75rem 1.25rem;
-  background-color: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-  border-radius: var(--border-radius);
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .loading-state {
@@ -210,4 +193,70 @@
   padding: 2rem;
   color: var(--color-text-light);
   font-style: italic;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+  background-color: white;
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-md);
+  width: 100%;
+  max-width: 42rem;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-small {
+  max-width: 28rem;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--color-text-light);
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+/* Paginación */
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.pagination-controls {
+  display: flex;
+  gap: 0.5rem;
 }

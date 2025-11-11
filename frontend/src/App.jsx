@@ -10,7 +10,6 @@ function App(){
   const [activeModule, setActiveModule] = useState('dashboard')
 
   useEffect(()=>{
-    // on mount, if token exists, try to fetch /auth/me
     const token = localStorage.getItem('token')
     if(!token) return
     ;(async ()=>{
@@ -18,14 +17,11 @@ function App(){
       if(res && res.status === 200 && res.data && res.data.user){
         setUser(res.data.user)
       } else {
-        // invalid token? remove
         localStorage.removeItem('token')
       }
     })()
   }, [])
 
-  // If no user, render only the Login view (full-screen). This ensures
-  // the sidebar and app content are not accessible until authentication.
   if (!user) {
     return (
       <div className="auth-root">
@@ -38,15 +34,22 @@ function App(){
 
   return (
     <div className="app-root">
-      <Sidebar user={user} onLogout={() => { localStorage.removeItem('token'); setUser(null); }} onNavigate={(m)=>setActiveModule(m)} />
+      <Sidebar 
+        user={user} 
+        onLogout={() => { localStorage.removeItem('token'); setUser(null); }} 
+        onNavigate={(m)=>setActiveModule(m)} 
+      />
       <main className="main-content">
-        <div>
-          <h2>Bienvenido, {user.nombre || user.correo}</h2>
-          <p>Aquí irán los módulos de gestión de flota.</p>
-        </div>
-        {activeModule === 'vehiculos' && (
-          <Vehiculos user={user} />
+        {activeModule === 'dashboard' && (
+          <div>
+            <h2>Bienvenido, {user.nombre || user.correo}</h2>
+            <p>Selecciona un módulo desde el menú lateral.</p>
+          </div>
         )}
+        {activeModule === 'vehiculos' && <Vehiculos user={user} />}
+        {activeModule === 'conductores' && <div><h2>Módulo Conductores</h2><p>Próximamente...</p></div>}
+        {activeModule === 'viajes' && <div><h2>Módulo Viajes</h2><p>Próximamente...</p></div>}
+        {activeModule === 'reportes' && <div><h2>Módulo Reportes</h2><p>Próximamente...</p></div>}
       </main>
     </div>
   )
