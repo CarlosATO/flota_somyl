@@ -1,3 +1,18 @@
+/* Estilo para el info box del upload */
+.upload-info-box {
+  padding: 1rem;
+  background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+  border-left: 4px solid #ffa726;
+  border-radius: var(--border-radius);
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #795548;
+}
+
+.uploader-label.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 /* --- AÑADIR AL FINAL DE Ordenes.css --- */
 
 /* Estilos para la sección de Adjuntos */
