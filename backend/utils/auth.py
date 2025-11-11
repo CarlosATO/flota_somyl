@@ -127,3 +127,18 @@ def auth_required(func):
         return func(*args, **kwargs)
 
     return wrapper
+
+
+def _has_write_permission(user: dict) -> bool:
+    """Verifica si el usuario puede crear o modificar recursos.
+    
+    Args:
+        user: Diccionario con información del usuario (debe contener 'cargo')
+        
+    Returns:
+        True si el usuario es Administrador o Dispatcher, False en caso contrario
+    """
+    if not user:
+        return False
+    cargo = (user.get('cargo') or '').lower()
+    return cargo in ('administrador', 'dispatcher')
