@@ -160,7 +160,7 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitt
     );
 };
 
-function Vehiculos({ user }) {
+function Vehiculos({ user, token }) {
     const [vehiculos, setVehiculos] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -178,21 +178,13 @@ function Vehiculos({ user }) {
     const debouncedSearch = useDebounce(searchQuery, 500);
 
     const fetchVehiculos = useCallback(async () => {
-        // CRÍTICO: No hacer fetch si no hay token
-        const token = localStorage.getItem('token');
-        if (!token) {
-            console.warn('⚠️ No hay token disponible, esperando...');
-            return;
-        }
-        
         setLoading(true);
         setError(null);
         const params = new URLSearchParams({ page, per_page: meta.per_page });
         if (debouncedSearch) params.append('search', debouncedSearch);
         
         try {
-            // CAMBIO: Usar /api/vehiculos (SIN barra final) porque el blueprint está en url_prefix='/api/vehiculos'
-            const res = await apiFetch(`/api/vehiculos?${params.toString()}`);
+            const res = await apiFetch(`/api/vehiculos/?${params.toString()}`);
             if (res && res.status === 200) {
                 setVehiculos(res.data.data || []);
                 setMeta(res.data.meta || { page: 1, per_page: 20, total: 0, pages: 1 });
@@ -206,13 +198,20 @@ function Vehiculos({ user }) {
         }
     }, [page, debouncedSearch, meta.per_page]);
 
-    useEffect(() => { fetchVehiculos(); }, [fetchVehiculos]);
+    // CRÍTICO: Solo hacer fetch cuando el token esté disponible
+    useEffect(() => {
+        if (token) {
+            console.log('✅ Token disponible en Vehiculos, haciendo fetch...');
+            fetchVehiculos();
+        } else {
+            console.warn('⚠️ Esperando token en Vehiculos...');
+        }
+    }, [token, fetchVehiculos]);
 
     const handleFormSubmit = async (formData, vehiculoId) => {
         setSubmitting(true);
         setFormError(null);
-        // CAMBIO: Sin barra final
-        const url = vehiculoId ? `/api/vehiculos/${vehiculoId}` : '/api/vehiculos';
+        const url = vehiculoId ? `/api/vehiculos/${vehiculoId}` : '/api/vehiculos/';
         const method = vehiculoId ? 'PUT' : 'POST';
 
         try {
@@ -247,6 +246,15 @@ function Vehiculos({ user }) {
             setSubmitting(false);
         }
     };
+
+    // Mostrar loading mientras espera el token
+    if (!token) {
+        return (
+            <div className="vehiculos-container">
+                <div className="loading-state">Cargando módulo de vehículos...</div>
+            </div>
+        );
+    }
 
     return (
         <div className="vehiculos-container">

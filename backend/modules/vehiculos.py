@@ -7,7 +7,7 @@ try:
     from postgrest.exceptions import APIError as PostgrestAPIError
 except ImportError:
     class PostgrestAPIError(Exception):
-        status_code = 500
+        pass
 
 bp = Blueprint('vehiculos', __name__)
 
@@ -27,7 +27,25 @@ def _has_write_permission(user: dict) -> bool:
 def _is_admin(user: dict) -> bool:
     return (user.get('cargo') or '').lower() == 'administrador'
 
-# CAMBIO: Con slash final para que url_prefix funcione correctamente
+def _safe_int(value):
+    """Convierte a int de forma segura, manejando floats y strings"""
+    if value is None or value == '':
+        return None
+    try:
+        # Si es float, convertir primero a float y luego a int
+        return int(float(value))
+    except (ValueError, TypeError):
+        return None
+
+def _safe_float(value):
+    """Convierte a float de forma segura"""
+    if value is None or value == '':
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
 @bp.route('/', methods=['GET'])
 @auth_required
 def list_vehiculos():
@@ -99,7 +117,6 @@ def get_vehiculo(veh_id):
         return jsonify({'message': 'Error en la base de datos al obtener el vehículo'}), 500
 
 
-# CAMBIO: Con slash final
 @bp.route('/', methods=['POST'])
 @auth_required
 def create_vehiculo():
@@ -118,11 +135,14 @@ def create_vehiculo():
 
     placa_norm = _normalize_placa(payload.get('placa'))
     
-    try:
-        ano_val = int(payload.get('ano'))
-    except (TypeError, ValueError):
+    # CORRECCIÓN: Usar _safe_int para año
+    ano_val = _safe_int(payload.get('ano'))
+    if ano_val is None:
         return jsonify({'message': 'El campo "ano" debe ser un número entero válido.'}), 400
 
+    # CORRECCIÓN: Convertir capacidad_kg a int (no float) si la DB espera integer
+    capacidad_kg_val = _safe_int(payload.get('capacidad_kg'))  # Cambio de _safe_float a _safe_int
+    
     row = {
         'placa': placa_norm,
         'vin': payload.get('vin'),
@@ -131,8 +151,8 @@ def create_vehiculo():
         'ano': ano_val,
         'tipo': payload.get('tipo'),
         'color': payload.get('color'),
-        'capacidad_pasajeros': int(payload.get('capacidad_pasajeros')) if payload.get('capacidad_pasajeros') is not None else None,
-        'capacidad_kg': float(payload.get('capacidad_kg')) if payload.get('capacidad_kg') is not None else None,
+        'capacidad_pasajeros': _safe_int(payload.get('capacidad_pasajeros')),
+        'capacidad_kg': capacidad_kg_val,
         'numero_chasis': payload.get('numero_chasis'),
         'observaciones': payload.get('observaciones'),
         'metadata': payload.get('metadata') or {}
@@ -143,9 +163,11 @@ def create_vehiculo():
         return jsonify({'data': res.data[0]}), 201
     except PostgrestAPIError as e:
         current_app.logger.error(f"Error Supabase (POST): {e}")
-        if 'duplicate key' in str(e).lower() or e.status_code == 409:
+        # CORRECCIÓN: No usar .status_code, usar solo el mensaje
+        error_str = str(e).lower()
+        if 'duplicate key' in error_str or '23505' in error_str:
              return jsonify({'message': f'La placa "{placa_norm}" ya existe en la base de datos.'}), 409
-        return jsonify({'message': 'Error en la base de datos al crear vehículo', 'detail': str(e)}), e.status_code if e.status_code else 500
+        return jsonify({'message': 'Error en la base de datos al crear vehículo', 'detail': str(e)}), 500
     except Exception as e:
         current_app.logger.error(f"Error al crear vehículo: {e}")
         return jsonify({'message': 'Error inesperado al crear vehículo', 'detail': str(e)}), 500
@@ -162,25 +184,34 @@ def update_vehiculo(veh_id):
     payload = request.get_json() or {}
     updates = {}
     
-    allowed_fields = {
-        'placa': lambda p: _normalize_placa(p) if p else None,
-        'vin': str, 'marca': str, 'modelo': str, 'tipo': str, 'color': str, 
-        'numero_chasis': str, 'observaciones': str, 'metadata': lambda m: m if isinstance(m, dict) else {},
-        'ano': int, 'capacidad_pasajeros': int, 'capacidad_kg': float
-    }
-
-    for field, field_type in allowed_fields.items():
-        if field in payload:
-            value = payload.get(field)
-            if value is not None and field_type in (int, float):
-                try:
-                    updates[field] = field_type(value)
-                except (ValueError, TypeError):
-                    return jsonify({'message': f'El campo "{field}" debe ser un valor numérico válido.'}), 400
-            elif field == 'placa':
-                updates[field] = _normalize_placa(value)
-            else:
-                updates[field] = value
+    # CORRECCIÓN: Procesar campos con las funciones seguras
+    if 'placa' in payload:
+        updates['placa'] = _normalize_placa(payload['placa'])
+    if 'vin' in payload:
+        updates['vin'] = payload['vin']
+    if 'marca' in payload:
+        updates['marca'] = payload['marca']
+    if 'modelo' in payload:
+        updates['modelo'] = payload['modelo']
+    if 'tipo' in payload:
+        updates['tipo'] = payload['tipo']
+    if 'color' in payload:
+        updates['color'] = payload['color']
+    if 'numero_chasis' in payload:
+        updates['numero_chasis'] = payload['numero_chasis']
+    if 'observaciones' in payload:
+        updates['observaciones'] = payload['observaciones']
+    if 'metadata' in payload:
+        updates['metadata'] = payload['metadata'] if isinstance(payload['metadata'], dict) else {}
+    if 'ano' in payload:
+        ano_val = _safe_int(payload['ano'])
+        if ano_val is None:
+            return jsonify({'message': 'El campo "ano" debe ser un número entero válido.'}), 400
+        updates['ano'] = ano_val
+    if 'capacidad_pasajeros' in payload:
+        updates['capacidad_pasajeros'] = _safe_int(payload['capacidad_pasajeros'])
+    if 'capacidad_kg' in payload:
+        updates['capacidad_kg'] = _safe_int(payload['capacidad_kg'])  # Cambio a int
 
     if not updates:
         return jsonify({'message': 'No se proporcionaron campos válidos para actualizar.'}), 400
@@ -193,9 +224,10 @@ def update_vehiculo(veh_id):
         return jsonify({'message': f'Vehículo con ID {veh_id} no encontrado para actualizar'}), 404
     except PostgrestAPIError as e:
         current_app.logger.error(f"Error Supabase (PUT): {e}")
-        if 'duplicate key' in str(e).lower() or e.status_code == 409:
+        error_str = str(e).lower()
+        if 'duplicate key' in error_str or '23505' in error_str:
              return jsonify({'message': f'La placa actualizada ya está en uso.'}), 409
-        return jsonify({'message': 'Error en la base de datos al actualizar vehículo', 'detail': str(e)}), e.status_code if e.status_code else 500
+        return jsonify({'message': 'Error en la base de datos al actualizar vehículo', 'detail': str(e)}), 500
     except Exception as e:
         current_app.logger.error(f"Error inesperado al actualizar vehículo {veh_id}: {e}")
         return jsonify({'message': 'Error inesperado al actualizar vehículo', 'detail': str(e)}), 500
