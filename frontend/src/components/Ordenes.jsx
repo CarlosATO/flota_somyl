@@ -165,11 +165,11 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
     };
 
     // --- NUEVO: Handler para subir archivos ---
+    // --- NUEVO: Handler para subir archivos (VERSIÓN CORREGIDA) ---
     const handleFileChange = async (e) => {
         if (!e.target.files || e.target.files.length === 0 || !editingOrden) return;
         const file = e.target.files[0];
         
-        // No permitir archivos muy grandes
         if (file.size > 10 * 1024 * 1024) { // 10MB Límite
             setUploadError("El archivo es muy grande (máx 10MB).");
             return;
@@ -179,31 +179,42 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
         setUploadError(null);
         
         try {
-            // 1. Subir a Supabase Storage (La "bodega")
-            // Usamos el ID de la orden y la fecha para un nombre único
-            const filePath = `${editingOrden.id}/${new Date().getTime()}_${file.name}`;
-            
+            // --- INICIO DE LA CORRECCIÓN ---
+            // 1. Sanitizar el nombre del archivo
+            const fileExt = file.name.split('.').pop();
+            const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, '_')
+                .replace(/__+/g, '_');
+
+            // 2. Crear el 'path' seguro
+            const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
+            const filePath = `${editingOrden.id}/${safeFileName}`;
+            // --- FIN DE LA CORRECCIÓN ---
+
+            // 3. Subir a Supabase Storage (La "bodega")
             const { error: uploadError } = await supabase.storage
-                .from('adjuntos_ordenes') // El bucket que creamos
+                .from('adjuntos_ordenes')
                 .upload(filePath, file);
 
             if (uploadError) {
+                if (uploadError.message.includes('policy')) {
+                     throw new Error('Error de permisos. Revisa las Políticas de Storage en Supabase.');
+                }
                 throw new Error(uploadError.message);
             }
 
-            // 2. Guardar en nuestro Backend (El "archivador" SQL)
-            // Llamamos al endpoint de Flask que guarda la metadata
+            // 4. Guardar en nuestro Backend (El "archivador" SQL)
             const res = await apiFetch(`/api/ordenes/${editingOrden.id}/adjuntos`, {
                 method: 'POST',
                 body: {
-                    storage_path: filePath, // La "dirección" que nos dio Storage
+                    storage_path: filePath,
                     nombre_archivo: file.name,
                     mime_type: file.type
                 }
             });
 
             if (res.status === 201) {
-                // Éxito: añadir el nuevo adjunto a la lista visible
                 setAdjuntos([res.data, ...adjuntos]);
             } else {
                 throw new Error(res.data?.message || 'Error guardando el registro del adjunto');
@@ -213,7 +224,6 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
             setUploadError(err.message);
         } finally {
             setIsUploading(false);
-            // Limpiar el input de archivo
             e.target.value = null; 
         }
     };
