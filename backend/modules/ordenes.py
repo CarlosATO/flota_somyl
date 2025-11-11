@@ -101,7 +101,7 @@ def delete_adjunto(adjunto_id):
         # El registro SQL YA fue borrado, pero el archivo físico quedó huérfano.
         return jsonify({'message': 'Adjunto eliminado (SQL), pero falló al limpiar el Storage', 'detail': str(e)}), 200
 from flask import Blueprint, request, jsonify, current_app, g
-from backend.utils.auth import auth_required
+from backend.utils.auth import auth_required, _has_write_permission
 from datetime import datetime
 import re
 
