@@ -30,13 +30,14 @@ def create_app():
         app.logger.error(f'❌ Error al registrar auth: {e}')
         pass
 
-    # Blueprint Ordenes (si existe)
+    # Blueprint Ordenes
     try:
         from .modules.ordenes import bp as ordenes_bp
         app.register_blueprint(ordenes_bp, url_prefix='/api/ordenes')
         app.logger.info('✅ Blueprint ordenes registrado en /api/ordenes')
     except Exception as e:
-        app.logger.warning(f'⚠️ Blueprint ordenes no disponible: {e}')
+        # CAMBIO: De 'warning' a 'error' para consistencia
+        app.logger.error(f'❌ Error al registrar ordenes: {e}') 
         pass
 
     # Blueprint Vehiculos
@@ -48,7 +49,7 @@ def create_app():
         app.logger.error(f'❌ Error al registrar vehiculos: {e}')
         pass
     
-    # Blueprint Conductores - NUEVO
+    # Blueprint Conductores
     try:
         from .modules.conductores import bp as conductores_bp
         app.register_blueprint(conductores_bp, url_prefix='/api/conductores')

@@ -3,6 +3,7 @@ import Login from './components/Login'
 import Sidebar from './components/Sidebar'
 import Vehiculos from './components/Vehiculos'
 import Conductores from './components/Conductores'
+import Ordenes from './components/Ordenes'
 import './App.css'
 import { apiFetch } from './lib/api'
 
@@ -76,7 +77,7 @@ function App(){
         )}
         {activeModule === 'vehiculos' && <Vehiculos user={user} token={token} />}
         {activeModule === 'conductores' && <Conductores user={user} token={token} />}
-        {activeModule === 'viajes' && <div><h2>Módulo Viajes</h2><p>Próximamente...</p></div>}
+  {activeModule === 'viajes' && <Ordenes user={user} token={token} />}
         {activeModule === 'reportes' && <div><h2>Módulo Reportes</h2><p>Próximamente...</p></div>}
       </main>
     </div>
