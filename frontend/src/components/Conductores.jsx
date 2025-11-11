@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../lib/api'
-import './Vehiculos.css'
+import './Conductores.css'
 
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
@@ -28,40 +28,50 @@ const Pagination = ({ meta, onPageChange }) => {
     );
 };
 
-const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, submitting }) => {
+const ConductorFormModal = ({ isOpen, onClose, onSave, editingConductor, apiError, submitting }) => {
     const [form, setForm] = useState({});
     const [activeTab, setActiveTab] = useState('basico');
-    const requiredFields = ['placa', 'marca', 'modelo', 'ano', 'tipo'];
+    const requiredFields = ['nombre', 'apellido', 'rut'];
     
     useEffect(() => {
-        if (editingVehicle) {
+        if (editingConductor) {
             setForm({
-                placa: editingVehicle.placa || '', marca: editingVehicle.marca || '',
-                modelo: editingVehicle.modelo || '', ano: editingVehicle.ano || '',
-                tipo: editingVehicle.tipo || '', color: editingVehicle.color || '',
-                vin: editingVehicle.vin || '', capacidad_pasajeros: editingVehicle.capacidad_pasajeros || '',
-                capacidad_kg: editingVehicle.capacidad_kg || '', numero_chasis: editingVehicle.numero_chasis || '',
-                observaciones: editingVehicle.observaciones || '',
+                nombre: editingConductor.nombre || '', 
+                apellido: editingConductor.apellido || '',
+                rut: editingConductor.rut || '', 
+                licencia_numero: editingConductor.licencia_numero || '',
+                licencia_tipo: editingConductor.licencia_tipo || '', 
+                licencia_vencimiento: editingConductor.licencia_vencimiento || '',
+                telefono: editingConductor.telefono || '', 
+                email: editingConductor.email || '',
+                estado: editingConductor.estado || 'activo',
+                observaciones: editingConductor.observaciones || '',
             });
         } else {
-            setForm({ placa: '', marca: '', modelo: '', ano: '', tipo: '', color: '', vin: '', 
-                     capacidad_pasajeros: '', capacidad_kg: '', numero_chasis: '', observaciones: '' });
+            setForm({ 
+                nombre: '', apellido: '', rut: '', licencia_numero: '', licencia_tipo: '', 
+                licencia_vencimiento: '', telefono: '', email: '', estado: 'activo', observaciones: '' 
+            });
         }
         setActiveTab('basico');
-    }, [editingVehicle, isOpen]);
+    }, [editingConductor, isOpen]);
 
     const handleChange = (e) => {
         const { name, value, type } = e.target;
         let finalValue = value;
         
-        // Convertir a mayúsculas campos de texto (excepto números y observaciones)
-        if (type !== 'number' && name !== 'observaciones' && typeof value === 'string') {
+        // Convertir a mayúsculas campos de texto (excepto email, teléfono, observaciones, fechas y estado)
+        if (
+            type !== 'date' &&
+            type !== 'email' &&
+            type !== 'tel' &&
+            name !== 'observaciones' &&
+            name !== 'email' &&
+            name !== 'telefono' &&
+            name !== 'estado' && // ← AGREGAR ESTA LÍNEA
+            typeof value === 'string'
+        ) {
             finalValue = value.toUpperCase();
-        }
-        
-        // Manejar números
-        if (type === 'number') {
-            finalValue = value ? parseInt(value, 10) : '';
         }
         
         setForm({ ...form, [name]: finalValue });
@@ -71,9 +81,13 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
         e.preventDefault();
         const payload = {};
         Object.keys(form).forEach(key => {
-            if (form[key] !== '' && form[key] !== null) payload[key] = form[key];
+            const value = form[key];
+            // Solo agregar campos con valores válidos
+            if (value !== '' && value !== null && value !== undefined) {
+                payload[key] = value;
+            }
         });
-        onSave(payload, editingVehicle ? editingVehicle.id : null);
+        onSave(payload, editingConductor ? editingConductor.id : null);
     };
 
     const isFormInvalid = requiredFields.some(field => !form[field]);
@@ -85,9 +99,9 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
             <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header-pro">
                     <div>
-                        <h3>{editingVehicle ? 'Editar Vehículo' : 'Registrar Nuevo Vehículo'}</h3>
+                        <h3>{editingConductor ? 'Editar Conductor' : 'Registrar Nuevo Conductor'}</h3>
                         <p className="modal-subtitle">
-                            {editingVehicle ? 'Modifica los datos del vehículo' : 'Completa la información del vehículo'}
+                            {editingConductor ? 'Modifica los datos del conductor' : 'Completa la información del conductor'}
                         </p>
                     </div>
                     <button onClick={onClose} className="modal-close-pro" type="button">×</button>
@@ -107,21 +121,21 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                             className={`tab-button ${activeTab === 'basico' ? 'active' : ''}`}
                             onClick={() => setActiveTab('basico')}
                         >
-                            📋 Información Básica
+                            👤 Datos Personales
                         </button>
                         <button 
                             type="button"
-                            className={`tab-button ${activeTab === 'tecnico' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('tecnico')}
+                            className={`tab-button ${activeTab === 'licencia' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('licencia')}
                         >
-                            🔧 Datos Técnicos
+                            🪪 Licencia de Conducir
                         </button>
                         <button 
                             type="button"
                             className={`tab-button ${activeTab === 'adicional' ? 'active' : ''}`}
                             onClick={() => setActiveTab('adicional')}
                         >
-                            📝 Información Adicional
+                            📞 Contacto y Observaciones
                         </button>
                     </div>
 
@@ -129,142 +143,104 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                         {activeTab === 'basico' && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Identificación del Vehículo</h4>
-                                    <div className="form-grid-2">
+                                    <h4 className="section-title-pro">Identificación</h4>
+                                    <div className="form-grid-3">
                                         <div className="form-group-pro">
-                                            <label>Placa <span className="required-star">*</span></label>
+                                            <label>Nombre <span className="required-star">*</span></label>
                                             <input 
-                                                name="placa" 
-                                                value={form.placa} 
+                                                name="nombre" 
+                                                value={form.nombre} 
                                                 onChange={handleChange} 
-                                                placeholder="Ej: ABC123"
+                                                placeholder="Ej: JUAN"
                                                 required 
                                             />
                                         </div>
                                         <div className="form-group-pro">
-                                            <label>Tipo <span className="required-star">*</span></label>
-                                            <select 
-                                                name="tipo" 
-                                                value={form.tipo} 
+                                            <label>Apellido <span className="required-star">*</span></label>
+                                            <input 
+                                                name="apellido" 
+                                                value={form.apellido} 
                                                 onChange={handleChange} 
-                                                required
-                                            >
-                                                <option value="">Seleccionar tipo</option>
-                                                <option value="SEDAN">SEDAN</option>
-                                                <option value="CAMIONETA">CAMIONETA</option>
-                                                <option value="CAMION">CAMIÓN</option>
-                                                <option value="VAN">VAN</option>
-                                                <option value="BUS">BUS</option>
-                                                <option value="MOTO">MOTO</option>
-                                            </select>
+                                                placeholder="Ej: PÉREZ"
+                                                required 
+                                            />
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>RUT <span className="required-star">*</span></label>
+                                            <input 
+                                                name="rut" 
+                                                value={form.rut} 
+                                                onChange={handleChange} 
+                                                placeholder="Ej: 12345678-9"
+                                                required 
+                                            />
+                                            <small className="input-hint-pro">Formato: 12345678-9</small>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Detalles del Vehículo</h4>
-                                    <div className="form-grid-3">
+                                    <h4 className="section-title-pro">Estado Laboral</h4>
+                                    <div className="form-grid-2">
                                         <div className="form-group-pro">
-                                            <label>Marca <span className="required-star">*</span></label>
-                                            <input 
-                                                name="marca" 
-                                                value={form.marca} 
+                                            <label>Estado <span className="required-star">*</span></label>
+                                            <select 
+                                                name="estado" 
+                                                value={form.estado} 
                                                 onChange={handleChange} 
-                                                placeholder="Ej: TOYOTA"
-                                                required 
-                                            />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Modelo <span className="required-star">*</span></label>
-                                            <input 
-                                                name="modelo" 
-                                                value={form.modelo} 
-                                                onChange={handleChange} 
-                                                placeholder="Ej: COROLLA"
-                                                required 
-                                            />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Año <span className="required-star">*</span></label>
-                                            <input 
-                                                name="ano" 
-                                                type="number" 
-                                                value={form.ano} 
-                                                onChange={handleChange} 
-                                                placeholder="2024"
-                                                min="1900"
-                                                max="2099"
-                                                required 
-                                            />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Color</label>
-                                            <input 
-                                                name="color" 
-                                                value={form.color} 
-                                                onChange={handleChange} 
-                                                placeholder="Ej: BLANCO"
-                                            />
+                                                required
+                                            >
+                                                <option value="activo">ACTIVO</option>
+                                                <option value="inactivo">INACTIVO</option>
+                                                <option value="vacaciones">VACACIONES</option>
+                                                <option value="licencia">LICENCIA MÉDICA</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {activeTab === 'tecnico' && (
+                        {activeTab === 'licencia' && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Números de Serie</h4>
-                                    <div className="form-grid-2">
+                                    <h4 className="section-title-pro">Información de Licencia</h4>
+                                    <div className="form-grid-3">
                                         <div className="form-group-pro">
-                                            <label>VIN (Número de Serie)</label>
+                                            <label>Número de Licencia</label>
                                             <input 
-                                                name="vin" 
-                                                value={form.vin} 
+                                                name="licencia_numero" 
+                                                value={form.licencia_numero} 
                                                 onChange={handleChange} 
-                                                placeholder="Ej: 1HGBH41JXMN109186"
-                                                maxLength="17"
-                                            />
-                                            <small className="input-hint-pro">17 caracteres alfanuméricos</small>
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Número de Chasis</label>
-                                            <input 
-                                                name="numero_chasis" 
-                                                value={form.numero_chasis} 
-                                                onChange={handleChange} 
-                                                placeholder="Número de chasis"
+                                                placeholder="Ej: 12345678"
                                             />
                                         </div>
-                                    </div>
-                                </div>
-
-                                <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Capacidades</h4>
-                                    <div className="form-grid-2">
                                         <div className="form-group-pro">
-                                            <label>Capacidad de Pasajeros</label>
-                                            <input 
-                                                name="capacidad_pasajeros" 
-                                                type="number" 
-                                                value={form.capacidad_pasajeros} 
-                                                onChange={handleChange} 
-                                                placeholder="Ej: 5"
-                                                min="1"
-                                            />
-                                            <small className="input-hint-pro">Número de asientos</small>
+                                            <label>Tipo de Licencia</label>
+                                            <select 
+                                                name="licencia_tipo" 
+                                                value={form.licencia_tipo} 
+                                                onChange={handleChange}
+                                            >
+                                                <option value="">Seleccionar tipo</option>
+                                                <option value="A1">A1 - Motos hasta 125cc</option>
+                                                <option value="A2">A2 - Motos hasta 400cc</option>
+                                                <option value="A3">A3 - Motos sin límite</option>
+                                                <option value="B">B - Automóviles</option>
+                                                <option value="C">C - Camiones</option>
+                                                <option value="D">D - Transporte Público</option>
+                                                <option value="E">E - Transporte Carga</option>
+                                            </select>
                                         </div>
                                         <div className="form-group-pro">
-                                            <label>Capacidad de Carga (Kg)</label>
+                                            <label>Fecha de Vencimiento</label>
                                             <input 
-                                                name="capacidad_kg" 
-                                                type="number" 
-                                                value={form.capacidad_kg} 
+                                                name="licencia_vencimiento" 
+                                                type="date" 
+                                                value={form.licencia_vencimiento} 
                                                 onChange={handleChange} 
-                                                placeholder="Ej: 2000"
-                                                min="0"
                                             />
-                                            <small className="input-hint-pro">Peso máximo en kilogramos</small>
+                                            <small className="input-hint-pro">Fecha de expiración de la licencia</small>
                                         </div>
                                     </div>
                                 </div>
@@ -274,6 +250,33 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                         {activeTab === 'adicional' && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
+                                    <h4 className="section-title-pro">Información de Contacto</h4>
+                                    <div className="form-grid-2">
+                                        <div className="form-group-pro">
+                                            <label>Teléfono</label>
+                                            <input 
+                                                name="telefono" 
+                                                type="tel" 
+                                                value={form.telefono} 
+                                                onChange={handleChange} 
+                                                placeholder="Ej: +56912345678"
+                                            />
+                                            <small className="input-hint-pro">Incluye código de país</small>
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Email</label>
+                                            <input 
+                                                name="email" 
+                                                type="email" 
+                                                value={form.email} 
+                                                onChange={handleChange} 
+                                                placeholder="ejemplo@email.com"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="form-section-pro">
                                     <h4 className="section-title-pro">Notas y Observaciones</h4>
                                     <div className="form-group-pro">
                                         <label>Observaciones</label>
@@ -282,7 +285,7 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                                             value={form.observaciones} 
                                             onChange={handleChange} 
                                             rows="8"
-                                            placeholder="Agrega notas, características especiales o cualquier información relevante sobre el vehículo..."
+                                            placeholder="Agrega notas, restricciones médicas, preferencias de turno o cualquier información relevante..."
                                             className="textarea-pro"
                                         ></textarea>
                                         <small className="input-hint-pro">
@@ -299,7 +302,7 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                             Cancelar
                         </button>
                         <button type="submit" disabled={isFormInvalid || submitting} className="btn btn-primary-pro">
-                            {submitting ? '⏳ Guardando...' : (editingVehicle ? '💾 Actualizar' : '➕ Crear Vehículo')}
+                            {submitting ? '⏳ Guardando...' : (editingConductor ? '💾 Actualizar' : '➕ Crear Conductor')}
                         </button>
                     </div>
                 </form>
@@ -332,16 +335,16 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitt
     );
 };
 
-function Vehiculos({ user, token }) {
-    const [vehiculos, setVehiculos] = useState([]);
+function Conductores({ user, token }) {
+    const [conductores, setConductores] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [meta, setMeta] = useState({ page: 1, per_page: 20, total: 0, pages: 1 });
     const [page, setPage] = useState(1);
     const [searchQuery, setSearchQuery] = useState('');
     const [showModal, setShowModal] = useState(false);
-    const [editingVehicle, setEditingVehicle] = useState(null);
-    const [deletingVehicle, setDeletingVehicle] = useState(null);
+    const [editingConductor, setEditingConductor] = useState(null);
+    const [deletingConductor, setDeletingConductor] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [formError, setFormError] = useState(null);
 
@@ -349,19 +352,19 @@ function Vehiculos({ user, token }) {
     const isAdmin = useMemo(() => (user?.cargo || '').toLowerCase() === 'administrador', [user?.cargo]);
     const debouncedSearch = useDebounce(searchQuery, 500);
 
-    const fetchVehiculos = useCallback(async () => {
+    const fetchConductores = useCallback(async () => {
         setLoading(true);
         setError(null);
         const params = new URLSearchParams({ page, per_page: meta.per_page });
         if (debouncedSearch) params.append('search', debouncedSearch);
         
         try {
-            const res = await apiFetch(`/api/vehiculos/?${params.toString()}`);
+            const res = await apiFetch(`/api/conductores/?${params.toString()}`);
             if (res && res.status === 200) {
-                setVehiculos(res.data.data || []);
+                setConductores(res.data.data || []);
                 setMeta(res.data.meta || { page: 1, per_page: 20, total: 0, pages: 1 });
             } else {
-                setError(res.data?.message || 'Error cargando vehículos');
+                setError(res.data?.message || 'Error cargando conductores');
             }
         } catch (err) {
             setError('Error de conexión');
@@ -372,21 +375,21 @@ function Vehiculos({ user, token }) {
 
     useEffect(() => {
         if (token) {
-            fetchVehiculos();
+            fetchConductores();
         }
-    }, [token, fetchVehiculos]);
+    }, [token, fetchConductores]);
 
-    const handleFormSubmit = async (formData, vehiculoId) => {
+    const handleFormSubmit = async (formData, conductorId) => {
         setSubmitting(true);
         setFormError(null);
-        const url = vehiculoId ? `/api/vehiculos/${vehiculoId}` : '/api/vehiculos/';
-        const method = vehiculoId ? 'PUT' : 'POST';
+        const url = conductorId ? `/api/conductores/${conductorId}` : '/api/conductores/';
+        const method = conductorId ? 'PUT' : 'POST';
 
         try {
             const res = await apiFetch(url, { method, body: formData });
             if (res && (res.status === 200 || res.status === 201)) {
                 setShowModal(false);
-                fetchVehiculos();
+                fetchConductores();
             } else {
                 setFormError(res.data?.message || 'Error al guardar');
             }
@@ -398,13 +401,13 @@ function Vehiculos({ user, token }) {
     };
 
     const handleConfirmDelete = async () => {
-        if (!deletingVehicle) return;
+        if (!deletingConductor) return;
         setSubmitting(true);
         try {
-            const res = await apiFetch(`/api/vehiculos/${deletingVehicle.id}`, { method: 'DELETE' });
+            const res = await apiFetch(`/api/conductores/${deletingConductor.id}`, { method: 'DELETE' });
             if (res && res.status === 200) {
-                setDeletingVehicle(null);
-                fetchVehiculos();
+                setDeletingConductor(null);
+                fetchConductores();
             } else {
                 setError(res.data?.message || 'No se pudo eliminar');
             }
@@ -415,24 +418,34 @@ function Vehiculos({ user, token }) {
         }
     };
 
+    const getEstadoBadge = (estado) => {
+        const badges = {
+            'activo': 'badge-estado-activo',
+            'inactivo': 'badge-estado-inactivo',
+            'vacaciones': 'badge-estado-vacaciones',
+            'licencia': 'badge-estado-licencia'
+        };
+        return badges[estado] || 'badge-estado-default';
+    };
+
     if (!token) {
         return (
-            <div className="vehiculos-container">
-                <div className="loading-state">Cargando módulo de vehículos...</div>
+            <div className="conductores-container">
+                <div className="loading-state">Cargando módulo de conductores...</div>
             </div>
         );
     }
 
     return (
-        <div className="vehiculos-container">
-            <div className="vehiculos-header">
+        <div className="conductores-container">
+            <div className="conductores-header">
                 <div>
-                    <h2>Gestión de Vehículos</h2>
-                    <p className="header-subtitle">Administra la flota de vehículos de la empresa</p>
+                    <h2>Gestión de Conductores</h2>
+                    <p className="header-subtitle">Administra el personal de conductores de la empresa</p>
                 </div>
                 {canWrite && (
-                    <button onClick={() => { setEditingVehicle(null); setFormError(null); setShowModal(true); }} className="btn btn-primary">
-                        ➕ Nuevo Vehículo
+                    <button onClick={() => { setEditingConductor(null); setFormError(null); setShowModal(true); }} className="btn btn-primary">
+                        ➕ Nuevo Conductor
                     </button>
                 )}
             </div>
@@ -442,7 +455,7 @@ function Vehiculos({ user, token }) {
                     <span className="search-icon-pro">🔍</span>
                     <input 
                         type="search" 
-                        placeholder="Buscar por placa, marca o modelo..." 
+                        placeholder="Buscar por nombre, apellido, RUT o email..." 
                         value={searchQuery} 
                         onChange={(e) => setSearchQuery(e.target.value)} 
                         className="search-input-pro" 
@@ -453,34 +466,36 @@ function Vehiculos({ user, token }) {
             {error && <div className="alert-error-pro">⚠️ {error}</div>}
 
             <div className="table-container">
-                {loading && vehiculos.length === 0 ? (
-                    <div className="loading-state">Cargando vehículos...</div>
+                {loading && conductores.length === 0 ? (
+                    <div className="loading-state">Cargando conductores...</div>
                 ) : (
-                    <table className="vehiculos-table">
+                    <table className="conductores-table">
                         <thead>
                             <tr>
-                                <th>Placa</th>
-                                <th>Marca</th>
-                                <th>Modelo</th>
-                                <th>Año</th>
-                                <th>Tipo</th>
+                                <th>Nombre Completo</th>
+                                <th>RUT</th>
+                                <th>Licencia</th>
+                                <th>Teléfono</th>
+                                <th>Email</th>
+                                <th>Estado</th>
                                 {(canWrite || isAdmin) && <th>Acciones</th>}
                             </tr>
                         </thead>
                         <tbody>
-                            {vehiculos.map(v => (
-                                <tr key={v.id}>
-                                    <td><span className="badge-placa">{v.placa}</span></td>
-                                    <td>{v.marca}</td>
-                                    <td>{v.modelo}</td>
-                                    <td>{v.ano}</td>
-                                    <td><span className="badge-tipo">{v.tipo}</span></td>
+                            {conductores.map(c => (
+                                <tr key={c.id}>
+                                    <td className="font-bold" style={{whiteSpace: 'nowrap'}}>{c.nombre} {c.apellido}</td>
+                                    <td><span className="badge-rut">{c.rut}</span></td>
+                                    <td>{c.licencia_tipo || '-'}</td>
+                                    <td>{c.telefono || '-'}</td>
+                                    <td>{c.email || '-'}</td>
+                                    <td><span className={getEstadoBadge(c.estado)}>{c.estado.toUpperCase()}</span></td>
                                     {(canWrite || isAdmin) && (
                                         <td>
                                             <div className="action-buttons-pro">
                                                 {canWrite && (
                                                     <button 
-                                                        onClick={() => { setEditingVehicle(v); setFormError(null); setShowModal(true); }} 
+                                                        onClick={() => { setEditingConductor(c); setFormError(null); setShowModal(true); }} 
                                                         className="btn-icon-pro btn-edit-pro"
                                                         title="Editar"
                                                     >
@@ -489,7 +504,7 @@ function Vehiculos({ user, token }) {
                                                 )}
                                                 {isAdmin && (
                                                     <button 
-                                                        onClick={() => setDeletingVehicle(v)} 
+                                                        onClick={() => setDeletingConductor(c)} 
                                                         className="btn-icon-pro btn-delete-pro"
                                                         title="Eliminar"
                                                     >
@@ -504,35 +519,35 @@ function Vehiculos({ user, token }) {
                         </tbody>
                     </table>
                 )}
-                {vehiculos.length === 0 && !loading && (
+                {conductores.length === 0 && !loading && (
                     <div className="empty-state-pro">
-                        <span className="empty-icon-pro">📦</span>
-                        <p>No se encontraron vehículos</p>
+                        <span className="empty-icon-pro">👥</span>
+                        <p>No se encontraron conductores</p>
                     </div>
                 )}
             </div>
 
             <Pagination meta={meta} onPageChange={(newPage) => setPage(newPage)} />
 
-            <VehiculoFormModal 
+            <ConductorFormModal 
                 isOpen={showModal} 
                 onClose={() => setShowModal(false)} 
                 onSave={handleFormSubmit} 
-                editingVehicle={editingVehicle} 
+                editingConductor={editingConductor} 
                 apiError={formError} 
                 submitting={submitting} 
             />
 
             <ConfirmationModal 
-                isOpen={!!deletingVehicle} 
-                onClose={() => setDeletingVehicle(null)} 
+                isOpen={!!deletingConductor} 
+                onClose={() => setDeletingConductor(null)} 
                 onConfirm={handleConfirmDelete} 
                 title="Confirmar Eliminación"
-                message={`¿Estás seguro de eliminar el vehículo ${deletingVehicle?.placa}? Esta acción no se puede deshacer.`} 
+                message={`¿Estás seguro de eliminar al conductor ${deletingConductor?.nombre} ${deletingConductor?.apellido}? Esta acción no se puede deshacer.`} 
                 submitting={submitting} 
             />
         </div>
     );
 }
 
-export default Vehiculos;
+export default Conductores;

@@ -21,27 +21,40 @@ def create_app():
     def health():
         return jsonify({"status": "ok", "message": "API funcionando!"})
 
+    # Blueprint Auth
     try:
         from .modules.auth import bp as auth_bp
         app.register_blueprint(auth_bp, url_prefix='/auth')
-    except Exception:
+        app.logger.info('✅ Blueprint auth registrado en /auth')
+    except Exception as e:
+        app.logger.error(f'❌ Error al registrar auth: {e}')
         pass
 
+    # Blueprint Ordenes (si existe)
     try:
         from .modules.ordenes import bp as ordenes_bp
         app.register_blueprint(ordenes_bp, url_prefix='/api/ordenes')
-    except Exception:
+        app.logger.info('✅ Blueprint ordenes registrado en /api/ordenes')
+    except Exception as e:
+        app.logger.warning(f'⚠️ Blueprint ordenes no disponible: {e}')
         pass
 
-    # CAMBIO: url_prefix sin barra final para que coincida con las rutas
+    # Blueprint Vehiculos
     try:
         from .modules.vehiculos import bp as vehiculos_bp
-        # Si las rutas en vehiculos.py tienen '/', usar '/api/vehiculos'
-        # Si las rutas en vehiculos.py tienen '', usar '/api/vehiculos'
         app.register_blueprint(vehiculos_bp, url_prefix='/api/vehiculos')
         app.logger.info('✅ Blueprint vehiculos registrado en /api/vehiculos')
     except Exception as e:
         app.logger.error(f'❌ Error al registrar vehiculos: {e}')
+        pass
+    
+    # Blueprint Conductores - NUEVO
+    try:
+        from .modules.conductores import bp as conductores_bp
+        app.register_blueprint(conductores_bp, url_prefix='/api/conductores')
+        app.logger.info('✅ Blueprint conductores registrado en /api/conductores')
+    except Exception as e:
+        app.logger.error(f'❌ Error al registrar conductores: {e}')
         pass
     
     return app
