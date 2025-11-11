@@ -1,0 +1,14 @@
+.app-root{
+  display: flex;
+  min-height: 100vh;
+  font-family: Inter, system-ui, Arial, sans-serif;
+}
+.main-content{
+  flex:1;
+  padding: 24px;
+  background:#f5f7fa;
+}
+
+/* Auth (login) centered when no user */
+.auth-root{height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fa}
+.auth-center{max-width:480px;width:100%;padding:24px}

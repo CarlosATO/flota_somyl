@@ -1,0 +1,6 @@
+.login-card{
+  max-width:360px;background:#fff;padding:20px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.08);
+}
+.login-form{display:flex;flex-direction:column;gap:12px}
+.login-form input{padding:8px;border-radius:6px;border:1px solid #ddd}
+.login-error{color:#b91c1c;font-size:14px}

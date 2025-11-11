@@ -1,0 +1,11 @@
+node_modules
+dist
+frontend/dist
+backend/__pycache__
+.venv
+.env
+*.pyc
+/.vscode
+npm-debug.log
+package-lock.json
+/.DS_Store

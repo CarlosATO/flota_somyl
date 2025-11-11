@@ -1,0 +1,12 @@
+.sidebar{
+  width: var(--sidebar-width);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-color);
+  padding: 18px;display:flex;flex-direction:column;gap:18px;
+}
+.sidebar.collapsed{width:72px}
+.brand{font-weight:700;font-size:18px}
+.menu{display:flex;flex-direction:column;gap:8px}
+.menu-item{color:rgba(255,255,255,0.9);padding:8px;border-radius:6px;text-decoration:none}
+.sidebar-footer{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+.user-info{font-size:14px;color:rgba(255,255,255,0.8)}
