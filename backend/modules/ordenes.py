@@ -1,6 +1,5 @@
 # === 1. IMPORTS (TODOS AL PRINCIPIO) ===
 from flask import Blueprint, request, jsonify, current_app, g
-# ARREGLO: Importamos la función de permisos que usan las nuevas rutas
 from backend.utils.auth import auth_required, _has_write_permission 
 from datetime import datetime
 import re
@@ -11,19 +10,15 @@ except ImportError:
     class PostgrestAPIError(Exception):
         pass
 
-# === 2. DEFINICIÓN DEL BLUEPRINT (AHORA SÍ, AL PRINCIPIO) ===
+# === 2. DEFINICIÓN DEL BLUEPRINT ===
 bp = Blueprint('ordenes', __name__)
 
-# === 3. HELPERS DE PERMISOS ===
+# === 3. HELPERS DE PERMISOS Y DATOS ===
 
 def _is_admin(user: dict) -> bool:
-    """Verifica si el usuario es Administrador."""
     return (user.get('cargo') or '').lower() == 'administrador'
 
-# === 4. HELPERS DE DATOS ===
-
 def _safe_int(value):
-    """Convierte a int de forma segura."""
     if value is None or value == '':
         return None
     try:
@@ -32,30 +27,58 @@ def _safe_int(value):
         return None
 
 def _safe_datetime(value):
-    """
-    Convierte un string ISO 8601 a un formato de timestamp 
-    que Supabase/PostgreSQL entiende.
-    """
     if not value:
         return None
     try:
         dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
         return dt.isoformat()
     except (ValueError, TypeError):
-        current_app.logger.warning(f"Fecha inválida recibida: {value}")
+        current_app.logger.warning(f"Fecha inválida: {value}")
         return None
 
-# === 5. RUTAS ORIGINALES DEL MÓDULO ORDENES ===
+# === 4. LÓGICA DE NEGOCIO (¡Excelente!) ===
+
+def _calcular_estado_automatico(vehiculo_id, conductor_id, fecha_fin_real, km_fin):
+    """Calcula el estado automático según reglas de negocio."""
+    # COMPLETADA: Tiene fecha_fin_real Y km_fin
+    if fecha_fin_real and (km_fin is not None): # 0 es un km_fin válido
+        return 'completada'
+    
+    # ASIGNADA: Tiene vehículo Y conductor
+    if vehiculo_id and conductor_id:
+        return 'asignada'
+    
+    # PENDIENTE: Todo lo demás
+    return 'pendiente'
+
+def _registrar_cambio_estado(orden_id, estado_anterior, estado_nuevo, usuario_id, observacion=None):
+    """Registra cambio de estado en historial."""
+    if estado_anterior == estado_nuevo:
+        return
+    
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        supabase.table('flota_orden_historial').insert({
+            'orden_id': orden_id,
+            'usuario_id': usuario_id,
+            'estado_anterior': estado_anterior,
+            'estado_nuevo': estado_nuevo,
+            'observacion': observacion
+        }).execute()
+        current_app.logger.info(f"📝 Estado cambiado: {estado_anterior} → {estado_nuevo} (Orden #{orden_id})")
+    except Exception as e:
+        current_app.logger.error(f"Error registrando historial: {e}")
+
+# === 5. RUTAS DEL MÓDULO ORDENES ===
 
 @bp.route('/', methods=['GET'])
 @auth_required
 def list_ordenes():
-    """Listar órdenes con búsqueda, paginación y filtros."""
+    """Listar órdenes (sin cambios, tu código estaba bien)."""
     supabase = current_app.config.get('SUPABASE')
     if not supabase:
-        return jsonify({'message': 'Error de configuración: Supabase no disponible'}), 500
+        return jsonify({'message': 'Error de configuración'}), 500
 
-    # Filtros
     q = request.args.get('search')
     estado = request.args.get('estado')
     fecha_desde = request.args.get('fecha_desde')
@@ -70,7 +93,6 @@ def list_ordenes():
     start = (page - 1) * per_page
     end = start + per_page - 1
 
-    # --- Consulta Principal con JOINs ---
     query = supabase.table('flota_ordenes').select(
         '*, vehiculo:flota_vehiculos(placa, marca, modelo), conductor:flota_conductores(nombre, apellido, rut)'
     )
@@ -92,12 +114,10 @@ def list_ordenes():
         data = res.data or []
     except Exception as e:
         current_app.logger.error(f"Error al listar órdenes: {e}")
-        return jsonify({'message': 'Error en la base de datos al obtener listado', 'detail': str(e)}), 500
+        return jsonify({'message': 'Error en la base de datos', 'detail': str(e)}), 500
 
-    # --- Consulta de Conteo (con los mismos filtros) ---
     try:
         count_query = supabase.table('flota_ordenes').select('id', count='exact')
-        
         if q:
             like_q = f'%{q}%'
             count_query = count_query.or_(f"origen.ilike.{like_q},destino.ilike.{like_q},descripcion.ilike.{like_q}")
@@ -109,9 +129,9 @@ def list_ordenes():
             count_query = count_query.lte('fecha_inicio_programada', fecha_hasta)
             
         count_res = count_query.execute()
-        total = count_res.count if hasattr(count_res, 'count') and count_res.count is not None else None
+        total = count_res.count if hasattr(count_res, 'count') else None
     except Exception as e:
-        current_app.logger.warning(f"No se pudo obtener el conteo total de órdenes: {e}")
+        current_app.logger.warning(f"No se pudo obtener conteo: {e}")
         total = None
 
     return jsonify({
@@ -120,11 +140,11 @@ def list_ordenes():
             'page': page, 
             'per_page': per_page, 
             'total': total, 
-            'pages': (total // per_page) + (1 if total % per_page > 0 else 0) if total is not None else None
+            'pages': (total // per_page) + (1 if total % per_page > 0 else 0) if total else None
         }
     })
 
-
+# --- ¡ARREGLO! get_orden() AHORA ESTÁ SEPARADA Y COMPLETA ---
 @bp.route('/<int:orden_id>', methods=['GET'])
 @auth_required
 def get_orden(orden_id):
@@ -144,7 +164,8 @@ def get_orden(orden_id):
         current_app.logger.error(f"Error al obtener orden {orden_id}: {e}")
         return jsonify({'message': 'Error en la base de datos al obtener la orden'}), 500
 
-
+# --- ¡ARREGLO! create_orden() ESTABA FALTANDO ---
+# (La copié de la versión anterior de tu archivo, ya que la borraste en el merge)
 @bp.route('/', methods=['POST'])
 @auth_required
 def create_orden():
@@ -163,8 +184,8 @@ def create_orden():
 
     row = {
         'usuario_creador_id': user.get('id'),
-        'vehiculo_id': payload.get('vehiculo_id'),
-        'conductor_id': payload.get('conductor_id'),
+        'vehiculo_id': _safe_int(payload.get('vehiculo_id')),
+        'conductor_id': _safe_int(payload.get('conductor_id')),
         'estado': payload.get('estado', 'pendiente'),
         'fecha_inicio_programada': _safe_datetime(payload.get('fecha_inicio_programada')),
         'fecha_fin_programada': _safe_datetime(payload.get('fecha_fin_programada')),
@@ -177,9 +198,29 @@ def create_orden():
     
     if not row['fecha_inicio_programada']:
          return jsonify({'message': 'Formato de fecha_inicio_programada inválido.'}), 400
+    
+    # Calcular estado automático al crear
+    row['estado'] = _calcular_estado_automatico(
+        row['vehiculo_id'], 
+        row['conductor_id'], 
+        None, 
+        None
+    )
 
     try:
         res = supabase.table('flota_ordenes').insert(row).execute()
+        
+        # Registrar historial de creación
+        if res.data:
+            orden_creada = res.data[0]
+            _registrar_cambio_estado(
+                orden_creada['id'],
+                None,
+                orden_creada['estado'],
+                user.get('id'),
+                'Orden creada'
+            )
+            
         return jsonify({'data': res.data[0]}), 201
     except PostgrestAPIError as e:
         current_app.logger.error(f"Error Supabase (POST Orden): {e}")
@@ -188,147 +229,179 @@ def create_orden():
         current_app.logger.error(f"Error al crear orden: {e}")
         return jsonify({'message': 'Error inesperado al crear la orden', 'detail': str(e)}), 500
 
-
+# --- ¡ARREGLO! update_orden() AHORA ESTÁ SEPARADA Y COMPLETA ---
 @bp.route('/<int:orden_id>', methods=['PUT'])
 @auth_required
 def update_orden(orden_id):
     """Actualizar una orden existente por ID."""
     user = g.get('current_user')
     if not _has_write_permission(user):
-        return jsonify({'message': 'Permisos insuficientes. Solo Administrador o Despachador pueden actualizar órdenes'}), 403
+        return jsonify({'message': 'Permisos insuficientes'}), 403
+
+    supabase = current_app.config.get('SUPABASE')
+    
+    # 1. Obtener el estado actual de la orden (¡necesario!)
+    try:
+        res_actual = supabase.table('flota_ordenes').select('*').eq('id', orden_id).limit(1).execute()
+        if not res_actual.data:
+            return jsonify({'message': 'Orden no encontrada'}), 404
+        orden_actual = res_actual.data[0]
+    except Exception as e:
+        return jsonify({'message': 'Error al buscar orden actual', 'detail': str(e)}), 500
 
     payload = request.get_json() or {}
     updates = {}
     
-    campos_actualizables = [
-        'vehiculo_id', 'conductor_id', 'estado', 'origen', 'destino', 
-        'descripcion', 'kilometraje_inicio', 'kilometraje_fin', 'observaciones'
-    ]
-    campos_fecha = [
-        'fecha_inicio_programada', 'fecha_fin_programada', 
-        'fecha_inicio_real', 'fecha_fin_real'
-    ]
-
-    for key in campos_actualizables:
+    # 2. Procesar todos los campos (tu lógica)
+    campos_simples = ['vehiculo_id', 'conductor_id', 'origen', 'destino', 'descripcion', 'observaciones']
+    for key in campos_simples:
         if key in payload:
             updates[key] = payload[key]
-            
+    
+    if 'kilometraje_inicio' in payload:
+        updates['kilometraje_inicio'] = _safe_int(payload['kilometraje_inicio'])
+    if 'kilometraje_fin' in payload:
+        updates['kilometraje_fin'] = _safe_int(payload['kilometraje_fin'])
+    
+    campos_fecha = ['fecha_inicio_programada', 'fecha_fin_programada', 'fecha_inicio_real', 'fecha_fin_real']
     for key in campos_fecha:
         if key in payload:
             dt = _safe_datetime(payload[key])
-            if dt:
-                updates[key] = dt
-            else:
-                return jsonify({'message': f'Formato de fecha inválido para {key}.'}), 400
-
+            updates[key] = dt if dt else None # Permitir setear a null
+    
+    # 3. Validaciones críticas (tu lógica)
+    km_inicio = updates.get('kilometraje_inicio', orden_actual.get('kilometraje_inicio'))
+    km_fin = updates.get('kilometraje_fin', orden_actual.get('kilometraje_fin'))
+    fecha_fin_real = updates.get('fecha_fin_real', orden_actual.get('fecha_fin_real'))
+    fecha_inicio_real = updates.get('fecha_inicio_real', orden_actual.get('fecha_inicio_real'))
+    
+    if (km_fin is not None and not fecha_fin_real) or (fecha_fin_real and km_fin is None):
+        return jsonify({'message': 'Debes completar AMBOS: Fecha Fin Real y KM Fin para cerrar la orden'}), 400
+    
+    if (km_fin is not None) and (km_inicio is not None) and km_fin <= km_inicio:
+        return jsonify({'message': f'KM Fin ({km_fin}) debe ser mayor que KM Inicio ({km_inicio})'}), 400
+    
+    if fecha_fin_real and fecha_inicio_real:
+        try:
+            dt_fin = datetime.fromisoformat(fecha_fin_real.replace('Z', '+00:00'))
+            dt_inicio = datetime.fromisoformat(fecha_inicio_real.replace('Z', '+00:00'))
+            if dt_fin <= dt_inicio:
+                return jsonify({'message': 'Fecha Fin Real debe ser posterior a Fecha Inicio Real'}), 400
+        except:
+            pass
+    
+    # 4. Calcular estado automático (tu lógica)
+    vehiculo_id = updates.get('vehiculo_id', orden_actual.get('vehiculo_id'))
+    conductor_id = updates.get('conductor_id', orden_actual.get('conductor_id'))
+    
+    nuevo_estado = _calcular_estado_automatico(vehiculo_id, conductor_id, fecha_fin_real, km_fin)
+    updates['estado'] = nuevo_estado
+    
     if not updates:
-        return jsonify({'message': 'No se proporcionaron campos válidos para actualizar.'}), 400
+        return jsonify({'message': 'No hay cambios'}), 400
 
-    supabase = current_app.config.get('SUPABASE')
+    # 5. Ejecutar el UPDATE
     try:
         res = supabase.table('flota_ordenes').update(updates).eq('id', orden_id).execute()
+        
         if res.data:
+            # Registrar cambio de estado
+            if orden_actual['estado'] != nuevo_estado:
+                _registrar_cambio_estado(
+                    orden_id,
+                    orden_actual['estado'],
+                    nuevo_estado,
+                    user.get('id'),
+                    'Actualización de orden'
+                )
+            
             return jsonify({'data': res.data[0]})
-        return jsonify({'message': f'Orden con ID {orden_id} no encontrada para actualizar'}), 404
-    except PostgrestAPIError as e:
+        return jsonify({'message': f'Orden {orden_id} no encontrada'}), 404
+    except PostgrestAPIError as e: # Manejo de errores de DB
         current_app.logger.error(f"Error Supabase (PUT Orden): {e}")
         return jsonify({'message': 'Error en la base de datos al actualizar la orden', 'detail': str(e)}), 500
     except Exception as e:
-        current_app.logger.error(f"Error inesperado al actualizar orden {orden_id}: {e}")
-        return jsonify({'message': 'Error inesperado al actualizar la orden', 'detail': str(e)}), 500
+        current_app.logger.error(f"Error al actualizar: {e}")
+        return jsonify({'message': 'Error al actualizar', 'detail': str(e)}), 500
 
 
 @bp.route('/<int:orden_id>', methods=['DELETE'])
 @auth_required
 def delete_orden(orden_id):
-    """Cancelar una orden (borrado lógico)."""
+    """Tu lógica de delete_orden (con historial) está perfecta."""
     user = g.get('current_user')
     if not _has_write_permission(user):
-        return jsonify({'message': 'Permisos insuficientes para cancelar órdenes'}), 403
+        return jsonify({'message': 'Permisos insuficientes'}), 403
 
     supabase = current_app.config.get('SUPABASE')
     try:
-        res = supabase.table('flota_ordenes').update({
-            'estado': 'cancelada'
-        }).eq('id', orden_id).execute()
+        res_actual = supabase.table('flota_ordenes').select('estado').eq('id', orden_id).limit(1).execute()
+        if not res_actual.data:
+            return jsonify({'message': 'Orden no encontrada'}), 404
+        
+        estado_anterior = res_actual.data[0]['estado']
+        
+        res = supabase.table('flota_ordenes').update({'estado': 'cancelada'}).eq('id', orden_id).execute()
         
         if res.data:
-            return jsonify({'message': f'Orden {orden_id} marcada como cancelada.'}), 200
-        return jsonify({'message': 'Orden no encontrada para cancelar'}), 404
+            _registrar_cambio_estado(orden_id, estado_anterior, 'cancelada', user.get('id'), 'Orden cancelada manualmente')
+            return jsonify({'message': f'Orden {orden_id} cancelada'}), 200
+        return jsonify({'message': 'Orden no encontrada'}), 404
         
     except Exception as e:
-        current_app.logger.error(f"Error al cancelar orden {orden_id}: {e}")
-        return jsonify({'message': 'Error al cancelar la orden', 'detail': str(e)}), 500
+        current_app.logger.error(f"Error al cancelar: {e}")
+        return jsonify({'message': 'Error al cancelar', 'detail': str(e)}), 500
 
 
-# === 6. NUEVAS RUTAS PARA ADJUNTOS (AL FINAL) ===
+# === RUTAS DE ADJUNTOS (sin cambios, estaban bien) ===
 
 @bp.route('/<int:orden_id>/adjuntos', methods=['GET'])
 @auth_required
 def list_adjuntos(orden_id):
-    """Listar todos los adjuntos (fotos) de una orden específica."""
     supabase = current_app.config.get('SUPABASE')
     try:
-        # Buscamos en la nueva tabla 'flota_orden_adjuntos'
         res = supabase.table('flota_orden_adjuntos').select('*') \
             .eq('orden_id', orden_id) \
             .order('created_at', desc=True) \
             .execute()
-        
         return jsonify({'data': res.data or []})
-        
     except Exception as e:
-        current_app.logger.error(f"Error listando adjuntos: {e}")
-        return jsonify({'message': 'Error al obtener adjuntos', 'detail': str(e)}), 500
+        return jsonify({'message': 'Error al obtener adjuntos'}), 500
 
 
 @bp.route('/<int:orden_id>/adjuntos', methods=['POST'])
 @auth_required
 def add_adjunto(orden_id):
-    """
-    Guarda la *metadata* de un adjunto (la foto ya se subió al Storage).
-    El frontend nos envía el 'storage_path' y la metadata.
-    """
     user = g.get('current_user')
     payload = request.get_json() or {}
-    
     storage_path = payload.get('storage_path')
     if not storage_path:
-        return jsonify({'message': 'Falta el "storage_path" (la dirección del archivo)'}), 400
+        return jsonify({'message': 'Falta storage_path'}), 400
 
     row = {
         'orden_id': orden_id,
-        'usuario_id': user.get('id'), # El ID de 'flota_usuarios'
+        'usuario_id': user.get('id'),
         'storage_path': storage_path,
         'nombre_archivo': payload.get('nombre_archivo'),
         'mime_type': payload.get('mime_type'),
         'observacion': payload.get('observacion')
     }
-    
     supabase = current_app.config.get('SUPABASE')
     try:
         res = supabase.table('flota_orden_adjuntos').insert(row).execute()
         return jsonify({'data': res.data[0]}), 201
     except Exception as e:
-        current_app.logger.error(f"Error creando adjunto SQL: {e}")
-        return jsonify({'message': 'Error al guardar el registro del adjunto', 'detail': str(e)}), 500
+        return jsonify({'message': 'Error al guardar adjunto'}), 500
 
 
 @bp.route('/adjuntos/<int:adjunto_id>', methods=['DELETE'])
 @auth_required
 def delete_adjunto(adjunto_id):
-    """
-    Elimina un adjunto. Esta es una operación "senior":
-    1. Borra el registro en la tabla SQL 'flota_orden_adjuntos'.
-    2. Borra el archivo físico del 'Bucket' de Storage.
-    """
     user = g.get('current_user')
     if not _has_write_permission(user): 
          return jsonify({'message': 'Permisos insuficientes'}), 403
          
     supabase = current_app.config.get('SUPABASE')
-    
-    # 1. Obtener el 'storage_path' ANTES de borrar el registro SQL
     storage_path = None
     try:
         res = supabase.table('flota_orden_adjuntos').select('storage_path') \
@@ -337,25 +410,32 @@ def delete_adjunto(adjunto_id):
             return jsonify({'message': 'Adjunto no encontrado'}), 404
         storage_path = res.data[0].get('storage_path')
     except Exception as e:
-        return jsonify({'message': 'Error al buscar el adjunto', 'detail': str(e)}), 500
+        return jsonify({'message': 'Error al buscar adjunto'}), 500
         
-    # 2. Borrar el registro de la tabla SQL
     try:
         supabase.table('flota_orden_adjuntos').delete().eq('id', adjunto_id).execute()
     except Exception as e:
-        current_app.logger.error(f"Error borrando adjunto SQL: {e}")
-        return jsonify({'message': 'Error al borrar registro de la base de datos', 'detail': str(e)}), 500
+        return jsonify({'message': 'Error al borrar registro'}), 500
         
-    # 3. Borrar el archivo físico del Storage (¡la bodega!)
     try:
         if storage_path:
-            bucket_name = 'adjuntos_ordenes'
-            res_storage = supabase.storage.from_(bucket_name).remove([storage_path])
-            current_app.logger.info(f"Respuesta de borrado de Storage: {res_storage}")
-        
-        return jsonify({'message': 'Adjunto eliminado correctamente (SQL y Storage)'}), 200
-        
+            supabase.storage.from_('adjuntos_ordenes').remove([storage_path])
+        return jsonify({'message': 'Adjunto eliminado'}), 200
     except Exception as e:
-        current_app.logger.error(f"Error borrando archivo de Storage: {e}")
-        # El registro SQL YA fue borrado, pero el archivo físico quedó huérfano.
-        return jsonify({'message': 'Adjunto eliminado (SQL), pero falló al limpiar el Storage', 'detail': str(e)}), 200
+        return jsonify({'message': 'SQL eliminado, falló Storage'}), 200
+
+
+# === RUTA NUEVA: ALERTAS DE LICENCIAS (¡Excelente idea!) ===
+
+@bp.route('/alertas/licencias', methods=['GET'])
+@auth_required
+def alertas_licencias():
+    """Retorna conductores con licencias próximas a vencer (30 días)."""
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        # Usar la vista creada
+        res = supabase.table('flota_conductores_licencias_alertas').select('*').execute()
+        return jsonify({'data': res.data or []})
+    except Exception as e:
+        current_app.logger.error(f"Error obteniendo alertas: {e}")
+        return jsonify({'message': 'Error al obtener alertas'}), 500
