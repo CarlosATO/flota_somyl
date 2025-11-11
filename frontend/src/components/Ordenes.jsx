@@ -1,12 +1,8 @@
-// En: frontend/src/components/Ordenes.jsx
-
 import { useState, useEffect, useCallback, useMemo } from 'react';
-// IMPORTAMOS LOS DOS CLIENTES:
-import { apiFetch } from '../lib/api'; // Para nuestro Backend (Flask)
-import { supabase } from '../lib/supabase'; // Para Supabase Storage (Archivos)
+import { apiFetch } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import './Ordenes.css';
 
-// --- useDebounce (Sin cambios) ---
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -16,7 +12,6 @@ const useDebounce = (value, delay) => {
     return debouncedValue;
 };
 
-// --- Pagination (Sin cambios) ---
 const Pagination = ({ meta, onPageChange }) => {
     if (!meta || meta.pages <= 1) return null;
     return (
@@ -30,7 +25,6 @@ const Pagination = ({ meta, onPageChange }) => {
     );
 };
 
-// --- Helpers de Fechas (Sin cambios) ---
 const formatLocalDate = (dateString) => {
     if (!dateString) return '-';
     try {
@@ -52,28 +46,25 @@ const formatDateTimeForInput = (dateString) => {
     } catch (e) { return ''; }
 };
 
-// --- Componente del Modal ---
-
-const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submitting, defaultTab = 'detalle' }) => {
+const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submitting, defaultTab = 'detalle', onRefresh }) => {
     
     const [activeTab, setActiveTab] = useState(defaultTab);
     const [form, setForm] = useState({});
     
-    // Listas para <select>
     const [vehiculosList, setVehiculosList] = useState([]);
     const [conductoresList, setConductoresList] = useState([]);
     const [loadingLists, setLoadingLists] = useState(false);
 
-    // --- NUEVOS ESTADOS PARA ADJUNTOS ---
     const [adjuntos, setAdjuntos] = useState([]);
     const [loadingAdjuntos, setLoadingAdjuntos] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
-    // Para errores específicos del upload
-    const [uploadError, setUploadError] = useState(null); 
+    const [uploadError, setUploadError] = useState(null);
+    
+    // *** NUEVO: ID temporal para orden recién creada ***
+    const [tempOrdenId, setTempOrdenId] = useState(null);
     
     const requiredFields = ['fecha_inicio_programada', 'origen', 'destino', 'descripcion'];
 
-    // Cargar listas de Vehículos/Conductores (Sin cambios)
     useEffect(() => {
         if (!isOpen) return;
         const fetchLists = async () => {
@@ -89,18 +80,16 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
         fetchLists();
     }, [isOpen]);
 
-    // Cargar datos del formulario Y ADJUNTOS
     useEffect(() => {
         if (isOpen) {
             setActiveTab(defaultTab);
-            setUploadError(null); // Limpiar errores de upload
+            setUploadError(null);
+            setTempOrdenId(null); // Resetear ID temporal
         }
 
         if (editingOrden) {
-            // Cargar datos del formulario
             setForm({
                 fecha_inicio_programada: formatDateTimeForInput(editingOrden.fecha_inicio_programada),
-                // ... (resto de los campos del formulario, sin cambios)
                 fecha_fin_programada: formatDateTimeForInput(editingOrden.fecha_fin_programada),
                 fecha_inicio_real: formatDateTimeForInput(editingOrden.fecha_inicio_real),
                 fecha_fin_real: formatDateTimeForInput(editingOrden.fecha_fin_real),
@@ -115,10 +104,8 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                 observaciones: editingOrden.observaciones || '',
             });
 
-            // --- NUEVO: Cargar lista de adjuntos ---
             const fetchAdjuntos = async () => {
                 setLoadingAdjuntos(true);
-                // Llamamos al nuevo endpoint del backend
                 const res = await apiFetch(`/api/ordenes/${editingOrden.id}/adjuntos`);
                 if (res.status === 200) {
                     setAdjuntos(res.data.data || []);
@@ -128,20 +115,17 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
             fetchAdjuntos();
 
         } else {
-            // Limpiar formulario para "Crear"
             setForm({
                 fecha_inicio_programada: formatDateTimeForInput(new Date().toISOString()),
-                // ... (resto de campos vacíos, sin cambios)
                 fecha_fin_programada: '', fecha_inicio_real: '', fecha_fin_real: '',
                 origen: '', destino: '', descripcion: '', estado: 'pendiente',
                 vehiculo_id: '', conductor_id: '', kilometraje_inicio: '',
                 kilometraje_fin: '', observaciones: '',
             });
-            setAdjuntos([]); // Limpiar adjuntos si es una orden nueva
+            setAdjuntos([]);
         }
     }, [editingOrden, isOpen, defaultTab]);
 
-    // HandleChange (Sin cambios)
     const handleChange = (e) => {
         const { name, value } = e.target;
         let finalValue = value;
@@ -151,97 +135,129 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
         setForm({ ...form, [name]: finalValue });
     };
 
-    // HandleSubmit (Sin cambios)
-    const handleSubmit = (e) => {
+    // *** MODIFICADO: Validar antes de guardar ***
+    const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        // Validación: No permitir "completada" sin fecha_fin_real
+        if (form.estado === 'completada' && !form.fecha_fin_real) {
+            setUploadError('No puedes completar la orden sin registrar la Fecha de Fin Real (pestaña Registro).');
+            return;
+        }
+        
         const payload = { ...form };
         try {
             if (payload.fecha_inicio_programada) payload.fecha_inicio_programada = new Date(payload.fecha_inicio_programada).toISOString();
             if (payload.fecha_fin_programada) payload.fecha_fin_programada = new Date(payload.fecha_fin_programada).toISOString();
             if (payload.fecha_inicio_real) payload.fecha_inicio_real = new Date(payload.fecha_inicio_real).toISOString();
             if (payload.fecha_fin_real) payload.fecha_fin_real = new Date(payload.fecha_fin_real).toISOString();
-        } catch (e) { console.error("Error al formatear fechas para envío", e); }
-        onSave(payload, editingOrden ? editingOrden.id : null);
+        } catch (e) { console.error("Error formateando fechas", e); }
+        
+        // *** NUEVO: Guardar y capturar ID ***
+        const result = await onSave(payload, editingOrden ? editingOrden.id : null);
+        
+        // Si es creación exitosa, guardar el ID temporal
+        if (!editingOrden && result && result.id) {
+            setTempOrdenId(result.id);
+        }
     };
 
-    // --- NUEVO: Handler para subir archivos ---
-    // --- NUEVO: Handler para subir archivos (VERSIÓN CORREGIDA) ---
     const handleFileChange = async (e) => {
-        if (!e.target.files || e.target.files.length === 0 || !editingOrden) return;
-        const file = e.target.files[0];
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const file = e.target.files[0];
+    
+    if (file.size > 10 * 1024 * 1024) {
+        setUploadError("El archivo es muy grande (máx 10MB).");
+        return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+    
+    try {
+        let ordenId = editingOrden ? editingOrden.id : tempOrdenId;
         
-        if (file.size > 10 * 1024 * 1024) { // 10MB Límite
-            setUploadError("El archivo es muy grande (máx 10MB).");
-            return;
-        }
-
-        setIsUploading(true);
-        setUploadError(null);
-        
-        try {
-            // --- INICIO DE LA CORRECCIÓN ---
-            // 1. Sanitizar el nombre del archivo
-            const fileExt = file.name.split('.').pop();
-            const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
-                .toLowerCase()
-                .replace(/[^a-z0-9]/g, '_')
-                .replace(/__+/g, '_');
-
-            // 2. Crear el 'path' seguro
-            const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
-            const filePath = `${editingOrden.id}/${safeFileName}`;
-            // --- FIN DE LA CORRECCIÓN ---
-
-            // 3. Subir a Supabase Storage (La "bodega")
-            const { error: uploadError } = await supabase.storage
-                .from('adjuntos_ordenes')
-                .upload(filePath, file);
-
-            if (uploadError) {
-                if (uploadError.message.includes('policy')) {
-                     throw new Error('Error de permisos. Revisa las Políticas de Storage en Supabase.');
-                }
-                throw new Error(uploadError.message);
-            }
-
-            // 4. Guardar en nuestro Backend (El "archivador" SQL)
-            const res = await apiFetch(`/api/ordenes/${editingOrden.id}/adjuntos`, {
+        // *** SI NO HAY ORDEN AÚN, CREARLA COMO BORRADOR ***
+        if (!ordenId) {
+            console.log('📝 No hay orden, creando borrador...');
+            
+            // Crear orden mínima (solo campos requeridos con valores por defecto)
+            const borradorPayload = {
+                fecha_inicio_programada: form.fecha_inicio_programada || new Date().toISOString(),
+                origen: form.origen || 'Por definir',
+                destino: form.destino || 'Por definir',
+                descripcion: form.descripcion || 'Borrador - completar datos',
+                estado: 'pendiente'
+            };
+            
+            const resBorrador = await apiFetch('/api/ordenes/', {
                 method: 'POST',
-                body: {
-                    storage_path: filePath,
-                    nombre_archivo: file.name,
-                    mime_type: file.type
-                }
+                body: borradorPayload
             });
-
-            if (res.status === 201) {
-                setAdjuntos([res.data, ...adjuntos]);
+            
+            if (resBorrador && resBorrador.status === 201) {
+                ordenId = resBorrador.data?.data?.id || resBorrador.data?.id;
+                setTempOrdenId(ordenId);
+                console.log('✅ Borrador creado con ID:', ordenId);
             } else {
-                throw new Error(res.data?.message || 'Error guardando el registro del adjunto');
+                throw new Error('No se pudo crear el borrador de la orden');
             }
-        } catch (err) {
-            console.error(err);
-            setUploadError(err.message);
-        } finally {
-            setIsUploading(false);
-            e.target.value = null; 
         }
-    };
+        
+        // *** SUBIR ARCHIVO ***
+        const fileExt = file.name.split('.').pop();
+        const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '_')
+            .replace(/__+/g, '_');
 
-    // --- NUEVO: Handler para borrar archivos ---
+        const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
+        const filePath = `${ordenId}/${safeFileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('adjuntos_ordenes')
+            .upload(filePath, file);
+
+        if (uploadError) {
+            if (uploadError.message.includes('policy')) {
+                throw new Error('Error de permisos. Revisa las Políticas de Storage en Supabase.');
+            }
+            throw new Error(uploadError.message);
+        }
+
+        const res = await apiFetch(`/api/ordenes/${ordenId}/adjuntos`, {
+            method: 'POST',
+            body: {
+                storage_path: filePath,
+                nombre_archivo: file.name,
+                mime_type: file.type
+            }
+        });
+
+        if (res.status === 201) {
+            setAdjuntos([res.data, ...adjuntos]);
+        } else {
+            throw new Error(res.data?.message || 'Error guardando adjunto');
+        }
+    } catch (err) {
+        console.error(err);
+        setUploadError(err.message);
+    } finally {
+        setIsUploading(false);
+        e.target.value = null; 
+    }
+};
+
     const handleDeleteAdjunto = async (adjuntoId) => {
-        // Pedir confirmación
         if (!window.confirm("¿Estás seguro de eliminar este archivo?")) {
             return;
         }
         
         try {
-            // Llamamos al endpoint DELETE de nuestro backend
-            // (Flask se encarga de borrarlo de SQL y de Storage)
             const res = await apiFetch(`/api/adjuntos/${adjuntoId}`, { method: 'DELETE' });
             
             if (res.status === 200) {
-                // Éxito: quitar el adjunto de la lista visible
                 setAdjuntos(adjuntos.filter(a => a.id !== adjuntoId));
             } else {
                 throw new Error(res.data?.message || 'Error al borrar');
@@ -252,7 +268,6 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
         }
     };
 
-    // --- NUEVO: Helper para obtener la URL pública ---
     const getPublicUrl = (storagePath) => {
         try {
             const { data } = supabase.storage
@@ -265,6 +280,9 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
     };
 
     const isFormInvalid = requiredFields.some(field => !form[field]);
+    
+    // *** CAMBIO: Siempre puede subir (se creará borrador automático) ***
+    const canUploadFiles = true;
 
     if (!isOpen) return null;
 
@@ -272,25 +290,22 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header-pro">
-                    {/* ... (header del modal - sin cambios) ... */}
                     <div>
                         <h3>{editingOrden ? 'Editar Orden de Servicio' : 'Crear Nueva Orden'}</h3>
                         <p className="modal-subtitle">
-                            {editingOrden ? `Modificando Orden #${editingOrden.id}` : 'Completa los detalles del servicio'}
+                            {editingOrden ? `Modificando Orden #${editingOrden.id}` : (tempOrdenId ? `Orden #${tempOrdenId} creada - Agrega adjuntos` : 'Completa los detalles del servicio')}
                         </p>
                     </div>
                     <button onClick={onClose} className="modal-close-pro" type="button">×</button>
                 </div>
                 
                 <form onSubmit={handleSubmit}>
-                    {/* Error global (para Guardar) */}
                     {apiError && (
                         <div className="modal-error-pro">
                             <span className="error-icon-pro">⚠</span>
                             <span>{apiError}</span>
                         </div>
                     )}
-                    {/* Error de Upload */}
                     {uploadError && (
                         <div className="modal-error-pro">
                             <span className="error-icon-pro">📤</span>
@@ -298,9 +313,7 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                         </div>
                     )}
 
-
                     <div className="modal-tabs">
-                        {/* ... (botones de pestañas - sin cambios) ... */}
                         <button type="button" className={`tab-button ${activeTab === 'detalle' ? 'active' : ''}`} onClick={() => setActiveTab('detalle')}>📍 Detalles del Viaje</button>
                         <button type="button" className={`tab-button ${activeTab === 'asignacion' ? 'active' : ''}`} onClick={() => setActiveTab('asignacion')}>👤 Asignación</button>
                         <button type="button" className={`tab-button ${activeTab === 'registro' ? 'active' : ''}`} onClick={() => setActiveTab('registro')}>📈 Registro (KM y Reales)</button>
@@ -309,10 +322,8 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                     <div className="modal-body-pro">
                         {loadingLists && <div className="loading-state">Cargando...</div>}
 
-                        {/* --- Pestaña 1: Detalles del Viaje --- */}
                         {activeTab === 'detalle' && !loadingLists && (
                             <div className="tab-content">
-                                {/* ... (Formulario de Origen, Destino, Fechas - sin cambios) ... */}
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Servicio</h4>
                                     <div className="form-grid-2">
@@ -329,70 +340,63 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                                     </div>
                                 </div>
                                 
-                                {/* --- ¡NUEVA SECCIÓN DE ADJUNTOS! --- */}
-                                {/* Solo mostrar si estamos EDITANDO una orden */}
-                                {editingOrden && (
-                                    <div className="form-section-pro adjuntos-container">
-                                        <h4 className="section-title-pro">📷 Adjuntos (Fotos, Guías)</h4>
-                                        
-                                        <div className="uploader-box">
-                                            <input 
-                                                type="file" 
-                                                id="file-upload" 
-                                                onChange={handleFileChange}
-                                                accept="image/*,application/pdf"
-                                                disabled={isUploading}
-                                            />
-                                            <label htmlFor="file-upload" className="uploader-label">
-                                                Seleccionar archivo...
-                                            </label>
-                                            <p className="uploader-hint">JPG, PNG o PDF (Máx 10MB)</p>
-                                            {isUploading && <p className="upload-progress">Subiendo, por favor espera...</p>}
-                                        </div>
-
-                                        <div className="adjuntos-list">
-                                            {loadingAdjuntos ? (
-                                                <p className="loading-adjuntos">Cargando adjuntos...</p>
-                                            ) : (
-                                                adjuntos.map(adj => (
-                                                    <div key={adj.id} className="adjunto-item">
-                                                        <div className="adjunto-info">
-                                                            <span className="adjunto-icon">
-                                                                {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
-                                                            </span>
-                                                            <span className="adjunto-name">
-                                                                {/* Hacemos un link público al archivo */}
-                                                                <a href={getPublicUrl(adj.storage_path)} target="_blank" rel="noopener noreferrer">
-                                                                    {adj.nombre_archivo || adj.storage_path}
-                                                                </a>
-                                                            </span>
-                                                        </div>
-                                                        <button 
-                                                            type="button" 
-                                                            className="adjunto-delete-btn"
-                                                            title="Eliminar adjunto"
-                                                            onClick={() => handleDeleteAdjunto(adj.id)}
-                                                        >
-                                                            ×
-                                                        </button>
-                                                    </div>
-                                                ))
-                                            )}
-                                            {!loadingAdjuntos && adjuntos.length === 0 && (
-                                                <p className="loading-adjuntos">No hay archivos adjuntos para esta orden.</p>
-                                            )}
-                                        </div>
+                                {/* *** MODIFICADO: Mostrar siempre, pero deshabilitar si no se puede subir *** */}
+                                <div className="form-section-pro adjuntos-container">
+                                    <h4 className="section-title-pro">📷 Adjuntos (Fotos, Guías)</h4>
+                                    
+                                    
+                                    <div className="uploader-box">
+                                        <input 
+                                            type="file" 
+                                            id="file-upload" 
+                                            onChange={handleFileChange}
+                                            accept="image/*,application/pdf"
+                                            disabled={isUploading}
+                                        />
+                                        <label htmlFor="file-upload" className={`uploader-label ${isUploading ? 'disabled' : ''}`}>
+                                            Seleccionar archivo...
+                                        </label>
+                                        <p className="uploader-hint">JPG, PNG o PDF (Máx 10MB)</p>
+                                        {isUploading && <p className="upload-progress">Subiendo, por favor espera...</p>}
                                     </div>
-                                )}
-                                {/* --- FIN DE SECCIÓN ADJUNTOS --- */}
 
+                                    <div className="adjuntos-list">
+                                        {loadingAdjuntos ? (
+                                            <p className="loading-adjuntos">Cargando adjuntos...</p>
+                                        ) : (
+                                            adjuntos.map(adj => (
+                                                <div key={adj.id} className="adjunto-item">
+                                                    <div className="adjunto-info">
+                                                        <span className="adjunto-icon">
+                                                            {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
+                                                        </span>
+                                                        <span className="adjunto-name">
+                                                            <a href={getPublicUrl(adj.storage_path)} target="_blank" rel="noopener noreferrer">
+                                                                {adj.nombre_archivo || adj.storage_path}
+                                                            </a>
+                                                        </span>
+                                                    </div>
+                                                    <button 
+                                                        type="button" 
+                                                        className="adjunto-delete-btn"
+                                                        title="Eliminar adjunto"
+                                                        onClick={() => handleDeleteAdjunto(adj.id)}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </div>
+                                            ))
+                                        )}
+                                        {!loadingAdjuntos && adjuntos.length === 0 && canUploadFiles && (
+                                            <p className="loading-adjuntos">No hay archivos adjuntos para esta orden.</p>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         )}
                         
-                        {/* --- Pestaña 2: Asignación (Sin cambios) --- */}
                         {activeTab === 'asignacion' && !loadingLists && (
                             <div className="tab-content">
-                                {/* ... (contenido sin cambios) ... */}
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Asignación de Recursos</h4>
                                     <div className="form-grid-2">
@@ -428,10 +432,8 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                             </div>
                         )}
 
-                        {/* --- Pestaña 3: Registro (Sin cambios) --- */}
                         {activeTab === 'registro' && !loadingLists && (
                             <div className="tab-content">
-                                {/* ... (contenido sin cambios) ... */}
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Fechas Reales (Ejecución)</h4>
                                     <div className="form-grid-2">
@@ -455,10 +457,8 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                                 </div>
                             </div>
                         )}
-
                     </div>
                     
-                    {/* --- Footer Global del Modal (Sin cambios) --- */}
                     <div className="modal-footer-pro">
                         <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>Cancelar</button>
                         <button type="submit" disabled={isFormInvalid || submitting || loadingLists || isUploading} className="btn btn-primary-pro">
@@ -471,7 +471,6 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
     );
 };
 
-// --- ConfirmationModal (Sin cambios) ---
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitting }) => {
     if (!isOpen) return null;
     return (
@@ -490,7 +489,6 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitt
     );
 };
 
-// --- Componente Principal Ordenes (Sin cambios, solo usa el Modal actualizado) ---
 function Ordenes({ user, token }) {
     const [ordenes, setOrdenes] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -510,7 +508,6 @@ function Ordenes({ user, token }) {
     const isAdmin = useMemo(() => (user?.cargo || '').toLowerCase() === 'administrador', [user?.cargo]);
     const debouncedSearch = useDebounce(searchQuery, 500);
 
-    // fetchOrdenes (Sin cambios)
     const fetchOrdenes = useCallback(async () => {
         setLoading(true);
         setError(null);
@@ -528,28 +525,48 @@ function Ordenes({ user, token }) {
         finally { setLoading(false); }
     }, [page, debouncedSearch, filtroEstado, meta.per_page]);
 
-    // useEffect (Sin cambios)
     useEffect(() => {
         if (token) { fetchOrdenes(); }
     }, [token, fetchOrdenes]);
 
-    // handleFormSubmit (Sin cambios)
+    // *** MODIFICADO: Retornar el resultado para capturar el ID ***
     const handleFormSubmit = async (formData, ordenId) => {
-        setSubmitting(true);
-        setFormError(null);
-        const url = ordenId ? `/api/ordenes/${ordenId}` : '/api/ordenes/';
-        const method = ordenId ? 'PUT' : 'POST';
-        try {
-            const res = await apiFetch(url, { method, body: formData });
-            if (res && (res.status === 200 || res.status === 201)) {
+    setSubmitting(true);
+    setFormError(null);
+    
+    console.log('🚀 handleFormSubmit llamado con:', { formData, ordenId }); // ← AGREGAR ESTA LÍNEA
+    
+    const url = ordenId ? `/api/ordenes/${ordenId}` : '/api/ordenes/';
+    const method = ordenId ? 'PUT' : 'POST';
+    try {
+        const res = await apiFetch(url, { method, body: formData });
+        
+        console.log('📦 Respuesta completa:', res);
+        console.log('📦 res.data:', res.data);
+        console.log('📦 res.data.data:', res.data?.data);
+        
+        if (res && (res.status === 200 || res.status === 201)) {
+            fetchOrdenes();
+            
+            if (!ordenId) {
+                const resultado = res.data?.data || res.data;
+                console.log('✅ Retornando:', resultado);
+                return resultado;
+            } else {
                 setShowModal(false);
                 fetchOrdenes();
-            } else { setFormError(res.data?.message || 'Error al guardar la orden'); }
-        } catch (err) { setFormError('Error de conexión'); } 
-        finally { setSubmitting(false); }
-    };
+            }
+        } else { 
+            setFormError(res.data?.message || 'Error al guardar la orden'); 
+        }
+    } catch (err) { 
+        console.error('❌ Error:', err);
+        setFormError('Error de conexión'); 
+    } finally { 
+        setSubmitting(false); 
+    }
+};
 
-    // handleConfirmCancel (Sin cambios)
     const handleConfirmCancel = async () => {
         if (!cancelingOrden) return;
         setSubmitting(true);
@@ -563,14 +580,12 @@ function Ordenes({ user, token }) {
         finally { setSubmitting(false); }
     };
 
-    // getEstadoBadge (Sin cambios)
     const getEstadoBadge = (estado) => `badge-estado badge-estado-${estado || 'default'}`;
 
     if (!token) {
         return (<div className="ordenes-container"><div className="loading-state">Cargando...</div></div>);
     }
 
-    // --- RENDER (Sin cambios, solo usa el Modal actualizado) ---
     return (
         <div className="ordenes-container">
             <div className="ordenes-header">
@@ -675,6 +690,7 @@ function Ordenes({ user, token }) {
                 apiError={formError} 
                 submitting={submitting} 
                 defaultTab={modalDefaultTab}
+                onRefresh={fetchOrdenes}
             />
 
             <ConfirmationModal 
