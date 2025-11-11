@@ -198,8 +198,16 @@ const ConductorFormModal = ({ isOpen, onClose, onSave, editingConductor, apiErro
                                         </div>
                                     </div>
                                 </div>
+                            <div className="tab-actions">
+                                <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" disabled={isFormInvalid || submitting} className="btn btn-primary-pro">
+                                    {submitting ? '⏳ Guardando...' : (editingConductor ? '💾 Actualizar' : '➕ Crear Conductor')}
+                                </button>
                             </div>
-                        )}
+                        </div>
+                    )}
 
                         {activeTab === 'licencia' && (
                             <div className="tab-content">
@@ -244,8 +252,16 @@ const ConductorFormModal = ({ isOpen, onClose, onSave, editingConductor, apiErro
                                         </div>
                                     </div>
                                 </div>
+                            <div className="tab-actions">
+                                <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" disabled={isFormInvalid || submitting} className="btn btn-primary-pro">
+                                    {submitting ? '⏳ Guardando...' : (editingConductor ? '💾 Actualizar' : '➕ Crear Conductor')}
+                                </button>
                             </div>
-                        )}
+                        </div>
+                    )}
 
                         {activeTab === 'adicional' && (
                             <div className="tab-content">
@@ -293,8 +309,16 @@ const ConductorFormModal = ({ isOpen, onClose, onSave, editingConductor, apiErro
                                         </small>
                                     </div>
                                 </div>
+                            <div className="tab-actions">
+                                <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" disabled={isFormInvalid || submitting} className="btn btn-primary-pro">
+                                    {submitting ? '⏳ Guardando...' : (editingConductor ? '💾 Actualizar' : '➕ Crear Conductor')}
+                                </button>
                             </div>
-                        )}
+                        </div>
+                    )}
                     </div>
                     
                     <div className="modal-footer-pro">

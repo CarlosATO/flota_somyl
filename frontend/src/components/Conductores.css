@@ -1,3 +1,12 @@
+/* Botones de acción dentro de los tabs */
+.tab-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding-top: 2rem;
+  margin-top: 2rem;
+  border-top: 2px solid var(--color-bg-light);
+}
 :root {
   --color-primary: #007bff;
   --color-primary-hover: #0056b3;
