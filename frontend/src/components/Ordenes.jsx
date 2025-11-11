@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../lib/api';
-import './Ordenes.css'; // Usamos los nuevos estilos
+import './Ordenes.css'; // Usamos los estilos
 
+// --- Hook useDebounce (Sin cambios) ---
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -11,6 +12,7 @@ const useDebounce = (value, delay) => {
     return debouncedValue;
 };
 
+// --- Componente Pagination (Sin cambios) ---
 const Pagination = ({ meta, onPageChange }) => {
     if (!meta || meta.pages <= 1) return null;
     return (
@@ -28,157 +30,114 @@ const Pagination = ({ meta, onPageChange }) => {
     );
 };
 
-// --- Formateo de Fechas ---
+// --- Helpers de Fechas (Sin cambios) ---
 const formatLocalDate = (dateString) => {
     if (!dateString) return '-';
     try {
         const date = new Date(dateString);
-        // Formato: DD/MM/AAAA HH:MM
         return date.toLocaleString('es-CL', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: false
         });
-    } catch (e) {
-        return dateString;
-    }
+    } catch (e) { return dateString; }
 };
 
 const formatDateTimeForInput = (dateString) => {
     if (!dateString) return '';
     try {
         const date = new Date(dateString);
-        // Ajustar a la zona horaria local para el input 'datetime-local'
         const offset = date.getTimezoneOffset();
         const localDate = new Date(date.getTime() - (offset * 60 * 1000));
         return localDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
-    } catch (e) {
-        return '';
-    }
+    } catch (e) { return ''; }
 };
 
 // --- Componente del Modal ---
 
-const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submitting }) => {
-    const [form, setForm] = useState({});
-    const [activeTab, setActiveTab] = useState('detalle');
+// CAMBIO: El modal ahora acepta 'defaultTab'
+const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submitting, defaultTab = 'detalle' }) => {
     
-    // --- NUEVO: Estados para cargar listas ---
+    // CAMBIO: El estado inicial de 'activeTab' ahora usa el 'defaultTab'
+    const [activeTab, setActiveTab] = useState(defaultTab);
+    
+    const [form, setForm] = useState({});
     const [vehiculosList, setVehiculosList] = useState([]);
     const [conductoresList, setConductoresList] = useState([]);
     const [loadingLists, setLoadingLists] = useState(false);
 
     const requiredFields = ['fecha_inicio_programada', 'origen', 'destino', 'descripcion'];
 
-    // --- NUEVO: Cargar Vehículos y Conductores ---
+    // Cargar listas (Sin cambios)
     useEffect(() => {
         if (!isOpen) return;
-
         const fetchLists = async () => {
             setLoadingLists(true);
             try {
-                // Cargar vehículos (asumimos que no son miles, pedimos 500)
                 const resVeh = await apiFetch('/api/vehiculos/?per_page=500');
-                if (resVeh.status === 200) {
-                    setVehiculosList(resVeh.data.data || []);
-                }
-                
-                // Cargar conductores (asumimos que no son miles, pedimos 500)
+                if (resVeh.status === 200) setVehiculosList(resVeh.data.data || []);
                 const resCond = await apiFetch('/api/conductores/?per_page=500');
-                if (resCond.status === 200) {
-                    setConductoresList(resCond.data.data || []);
-                }
-            } catch (e) {
-                console.error("Error cargando listas", e);
-            }
+                if (resCond.status === 200) setConductoresList(resCond.data.data || []);
+            } catch (e) { console.error("Error cargando listas", e); }
             setLoadingLists(false);
         };
-
         fetchLists();
-    }, [isOpen]); // Recargar listas cada vez que se abre el modal
+    }, [isOpen]);
 
-    // Cargar datos de la orden que se está editando
+    // Cargar datos del formulario
     useEffect(() => {
+        // CAMBIO: Asegurarse de resetear el tab a 'defaultTab' cuando se abre
+        if (isOpen) {
+            setActiveTab(defaultTab);
+        }
+
         if (editingOrden) {
             setForm({
-                // Usamos formatDateTimeForInput para 'datetime-local'
                 fecha_inicio_programada: formatDateTimeForInput(editingOrden.fecha_inicio_programada),
                 fecha_fin_programada: formatDateTimeForInput(editingOrden.fecha_fin_programada),
                 fecha_inicio_real: formatDateTimeForInput(editingOrden.fecha_inicio_real),
                 fecha_fin_real: formatDateTimeForInput(editingOrden.fecha_fin_real),
-                
                 origen: editingOrden.origen || '',
                 destino: editingOrden.destino || '',
                 descripcion: editingOrden.descripcion || '',
                 estado: editingOrden.estado || 'pendiente',
-
                 vehiculo_id: editingOrden.vehiculo_id || '',
                 conductor_id: editingOrden.conductor_id || '',
-                
                 kilometraje_inicio: editingOrden.kilometraje_inicio || '',
                 kilometraje_fin: editingOrden.kilometraje_fin || '',
                 observaciones: editingOrden.observaciones || '',
             });
         } else {
-            // Formulario vacío para nueva orden
             setForm({
-                fecha_inicio_programada: formatDateTimeForInput(new Date().toISOString()), // Default a 'ahora'
-                fecha_fin_programada: '',
-                fecha_inicio_real: '',
-                fecha_fin_real: '',
-                origen: '',
-                destino: '',
-                descripcion: '',
-                estado: 'pendiente',
-                vehiculo_id: '',
-                conductor_id: '',
-                kilometraje_inicio: '',
-                kilometraje_fin: '',
-                observaciones: '',
+                fecha_inicio_programada: formatDateTimeForInput(new Date().toISOString()),
+                fecha_fin_programada: '', fecha_inicio_real: '', fecha_fin_real: '',
+                origen: '', destino: '', descripcion: '', estado: 'pendiente',
+                vehiculo_id: '', conductor_id: '', kilometraje_inicio: '',
+                kilometraje_fin: '', observaciones: '',
             });
         }
-        setActiveTab('detalle');
-    }, [editingOrden, isOpen]);
+    // CAMBIO: Añadimos 'defaultTab' a las dependencias
+    }, [editingOrden, isOpen, defaultTab]);
 
+    // HandleChange (Sin cambios)
     const handleChange = (e) => {
         const { name, value, type } = e.target;
         let finalValue = value;
-
-        // Convertir IDs a números
         if (name === 'vehiculo_id' || name === 'conductor_id' || name === 'kilometraje_inicio' || name === 'kilometraje_fin') {
             finalValue = value ? parseInt(value, 10) : '';
         }
-        
         setForm({ ...form, [name]: finalValue });
     };
 
+    // HandleSubmit (Sin cambios)
     const handleSubmit = (e) => {
         e.preventDefault();
-        
         const payload = { ...form };
-
-        // Convertir fechas locales a ISO String (UTC) para el backend
-        // El backend espera formato ISO 8601
         try {
-            if (payload.fecha_inicio_programada) {
-                payload.fecha_inicio_programada = new Date(payload.fecha_inicio_programada).toISOString();
-            }
-            if (payload.fecha_fin_programada) {
-                payload.fecha_fin_programada = new Date(payload.fecha_fin_programada).toISOString();
-            }
-            if (payload.fecha_inicio_real) {
-                payload.fecha_inicio_real = new Date(payload.fecha_inicio_real).toISOString();
-            }
-            if (payload.fecha_fin_real) {
-                payload.fecha_fin_real = new Date(payload.fecha_fin_real).toISOString();
-            }
-        } catch (e) {
-            console.error("Error al formatear fechas para envío", e);
-        }
-
+            if (payload.fecha_inicio_programada) payload.fecha_inicio_programada = new Date(payload.fecha_inicio_programada).toISOString();
+            if (payload.fecha_fin_programada) payload.fecha_fin_programada = new Date(payload.fecha_fin_programada).toISOString();
+            if (payload.fecha_inicio_real) payload.fecha_inicio_real = new Date(payload.fecha_inicio_real).toISOString();
+            if (payload.fecha_fin_real) payload.fecha_fin_real = new Date(payload.fecha_fin_real).toISOString();
+        } catch (e) { console.error("Error al formatear fechas para envío", e); }
         onSave(payload, editingOrden ? editingOrden.id : null);
     };
 
@@ -186,6 +145,7 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
 
     if (!isOpen) return null;
 
+    // --- RENDER DEL MODAL (Sin cambios, solo usa 'activeTab' como siempre) ---
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
@@ -222,43 +182,28 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                     <div className="modal-body-pro">
                         {loadingLists && <div className="loading-state">Cargando vehículos y conductores...</div>}
 
-                        {/* --- Pestaña 1: Detalles del Viaje --- */}
+                        {/* Pestaña 1: Detalles (Sin cambios) */}
                         {activeTab === 'detalle' && !loadingLists && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Servicio</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro">
-                                            <label>Origen <span className="required-star">*</span></label>
-                                            <input name="origen" value={form.origen} onChange={handleChange} required />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Destino <span className="required-star">*</span></label>
-                                            <input name="destino" value={form.destino} onChange={handleChange} required />
-                                        </div>
+                                        <div className="form-group-pro"><label>Origen <span className="required-star">*</span></label><input name="origen" value={form.origen} onChange={handleChange} required /></div>
+                                        <div className="form-group-pro"><label>Destino <span className="required-star">*</span></label><input name="destino" value={form.destino} onChange={handleChange} required /></div>
                                     </div>
-                                    <div className="form-group-pro" style={{marginTop: '1.25rem'}}>
-                                        <label>Descripción / Motivo <span className="required-star">*</span></label>
-                                        <textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows="3" className="textarea-pro" required></textarea>
-                                    </div>
+                                    <div className="form-group-pro" style={{marginTop: '1.25rem'}}><label>Descripción / Motivo <span className="required-star">*</span></label><textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows="3" className="textarea-pro" required></textarea></div>
                                 </div>
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Fechas Programadas</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro">
-                                            <label>Inicio Programado <span className="required-star">*</span></label>
-                                            <input name="fecha_inicio_programada" type="datetime-local" value={form.fecha_inicio_programada} onChange={handleChange} required />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Fin Programado</label>
-                                            <input name="fecha_fin_programada" type="datetime-local" value={form.fecha_fin_programada} onChange={handleChange} />
-                                        </div>
+                                        <div className="form-group-pro"><label>Inicio Programado <span className="required-star">*</span></label><input name="fecha_inicio_programada" type="datetime-local" value={form.fecha_inicio_programada} onChange={handleChange} required /></div>
+                                        <div className="form-group-pro"><label>Fin Programado</label><input name="fecha_fin_programada" type="datetime-local" value={form.fecha_fin_programada} onChange={handleChange} /></div>
                                     </div>
                                 </div>
                             </div>
                         )}
                         
-                        {/* --- Pestaña 2: Asignación --- */}
+                        {/* Pestaña 2: Asignación (Sin cambios) */}
                         {activeTab === 'asignacion' && !loadingLists && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
@@ -268,22 +213,14 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                                             <label>Vehículo (Placa)</label>
                                             <select name="vehiculo_id" value={form.vehiculo_id} onChange={handleChange}>
                                                 <option value="">(Sin asignar)</option>
-                                                {vehiculosList.map(v => (
-                                                    <option key={v.id} value={v.id}>
-                                                        {v.placa} ({v.marca} {v.modelo})
-                                                    </option>
-                                                ))}
+                                                {vehiculosList.map(v => (<option key={v.id} value={v.id}>{v.placa} ({v.marca} {v.modelo})</option>))}
                                             </select>
                                         </div>
                                         <div className="form-group-pro">
                                             <label>Conductor (Nombre)</label>
                                             <select name="conductor_id" value={form.conductor_id} onChange={handleChange}>
                                                 <option value="">(Sin asignar)</option>
-                                                {conductoresList.map(c => (
-                                                    <option key={c.id} value={c.id}>
-                                                        {c.nombre} {c.apellido} ({c.rut})
-                                                    </option>
-                                                ))}
+                                                {conductoresList.map(c => (<option key={c.id} value={c.id}>{c.nombre} {c.apellido} ({c.rut})</option>))}
                                             </select>
                                         </div>
                                     </div>
@@ -294,10 +231,8 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                                         <div className="form-group-pro">
                                             <label>Estado</label>
                                             <select name="estado" value={form.estado} onChange={handleChange}>
-                                                <option value="pendiente">PENDIENTE</option>
-                                                <option value="asignada">ASIGNADA</option>
-                                                <option value="en_curso">EN CURSO</option>
-                                                <option value="completada">COMPLETADA</option>
+                                                <option value="pendiente">PENDIENTE</option><option value="asignada">ASIGNADA</option>
+                                                <option value="en_curso">EN CURSO</option><option value="completada">COMPLETADA</option>
                                                 <option value="cancelada">CANCELADA</option>
                                             </select>
                                         </div>
@@ -306,33 +241,21 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                             </div>
                         )}
 
-                        {/* --- Pestaña 3: Registro --- */}
+                        {/* Pestaña 3: Registro (Sin cambios) */}
                         {activeTab === 'registro' && !loadingLists && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Fechas Reales (Ejecución)</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro">
-                                            <label>Inicio Real</label>
-                                            <input name="fecha_inicio_real" type="datetime-local" value={form.fecha_inicio_real} onChange={handleChange} />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Fin Real</label>
-                                            <input name="fecha_fin_real" type="datetime-local" value={form.fecha_fin_real} onChange={handleChange} />
-                                        </div>
+                                        <div className="form-group-pro"><label>Inicio Real</label><input name="fecha_inicio_real" type="datetime-local" value={form.fecha_inicio_real} onChange={handleChange} /></div>
+                                        <div className="form-group-pro"><label>Fin Real</label><input name="fecha_fin_real" type="datetime-local" value={form.fecha_fin_real} onChange={handleChange} /></div>
                                     </div>
                                 </div>
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Kilometraje (Odómetro)</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro">
-                                            <label>KM Inicio</label>
-                                            <input name="kilometraje_inicio" type="number" value={form.kilometraje_inicio} onChange={handleChange} />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>KM Fin</label>
-                                            <input name="kilometraje_fin" type="number" value={form.kilometraje_fin} onChange={handleChange} />
-                                        </div>
+                                        <div className="form-group-pro"><label>KM Inicio</label><input name="kilometraje_inicio" type="number" value={form.kilometraje_inicio} onChange={handleChange} /></div>
+                                        <div className="form-group-pro"><label>KM Fin</label><input name="kilometraje_fin" type="number" value={form.kilometraje_fin} onChange={handleChange} /></div>
                                     </div>
                                 </div>
                                 <div className="form-section-pro">
@@ -344,9 +267,9 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                                 </div>
                             </div>
                         )}
-
                     </div>
                     
+                    {/* Botones Globales (Sin cambios, siempre visibles) */}
                     <div className="modal-footer-pro">
                         <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>
                             Cancelar
@@ -361,22 +284,16 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
     );
 };
 
-// --- Modal de Confirmación ---
+// --- Modal de Confirmación (Sin cambios) ---
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitting }) => {
     if (!isOpen) return null;
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content modal-small" onClick={(e) => e.stopPropagation()}>
-                <div className="modal-header-pro">
-                    <h3>⚠️ {title}</h3>
-                </div>
-                <div className="modal-body-pro">
-                    <p className="confirmation-message">{message}</p>
-                </div>
+                <div className="modal-header-pro"><h3>⚠️ {title}</h3></div>
+                <div className="modal-body-pro"><p className="confirmation-message">{message}</p></div>
                 <div className="modal-footer-pro">
-                    <button onClick={onClose} disabled={submitting} className="btn btn-secondary-pro">
-                        Cancelar
-                    </button>
+                    <button onClick={onClose} disabled={submitting} className="btn btn-secondary-pro">Cancelar</button>
                     <button onClick={onConfirm} disabled={submitting} className="btn btn-danger-pro">
                         {submitting ? 'Procesando...' : 'Confirmar'}
                     </button>
@@ -394,34 +311,26 @@ function Ordenes({ user, token }) {
     const [error, setError] = useState(null);
     const [meta, setMeta] = useState({ page: 1, per_page: 20, total: 0, pages: 1 });
     const [page, setPage] = useState(1);
-    
-    // Filtros
     const [searchQuery, setSearchQuery] = useState('');
-    const [filtroEstado, setFiltroEstado] = useState(''); // '' (todos), 'pendiente', 'asignada', etc.
-    
-    // Modales
+    const [filtroEstado, setFiltroEstado] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [editingOrden, setEditingOrden] = useState(null);
-    const [cancelingOrden, setCancelingOrden] = useState(null); // ID de la orden a cancelar
-    
+    const [cancelingOrden, setCancelingOrden] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [formError, setFormError] = useState(null);
 
-    // Permisos
+    // CAMBIO: Nuevo estado para controlar la pestaña del modal
+    const [modalDefaultTab, setModalDefaultTab] = useState('detalle');
+
     const canWrite = useMemo(() => ['administrador', 'dispatcher'].includes((user?.cargo || '').toLowerCase()), [user?.cargo]);
     const isAdmin = useMemo(() => (user?.cargo || '').toLowerCase() === 'administrador', [user?.cargo]);
-    
     const debouncedSearch = useDebounce(searchQuery, 500);
 
+    // fetchOrdenes (Sin cambios)
     const fetchOrdenes = useCallback(async () => {
         setLoading(true);
         setError(null);
-        
-        // Construir Query Params
-        const params = new URLSearchParams({ 
-            page, 
-            per_page: meta.per_page 
-        });
+        const params = new URLSearchParams({ page, per_page: meta.per_page });
         if (debouncedSearch) params.append('search', debouncedSearch);
         if (filtroEstado) params.append('estado', filtroEstado);
         
@@ -433,20 +342,16 @@ function Ordenes({ user, token }) {
             } else {
                 setError(res.data?.message || 'Error cargando órdenes');
             }
-        } catch (err) {
-            setError('Error de conexión');
-        } finally {
-            setLoading(false);
-        }
+        } catch (err) { setError('Error de conexión'); } 
+        finally { setLoading(false); }
     }, [page, debouncedSearch, filtroEstado, meta.per_page]);
 
+    // useEffect (Sin cambios)
     useEffect(() => {
-        if (token) {
-            fetchOrdenes();
-        }
+        if (token) { fetchOrdenes(); }
     }, [token, fetchOrdenes]);
 
-    // Handler para Submit (Crear / Editar)
+    // handleFormSubmit (Sin cambios)
     const handleFormSubmit = async (formData, ordenId) => {
         setSubmitting(true);
         setFormError(null);
@@ -457,48 +362,37 @@ function Ordenes({ user, token }) {
             const res = await apiFetch(url, { method, body: formData });
             if (res && (res.status === 200 || res.status === 201)) {
                 setShowModal(false);
-                fetchOrdenes(); // Recargar la lista
+                fetchOrdenes();
             } else {
                 setFormError(res.data?.message || 'Error al guardar la orden');
             }
-        } catch (err) {
-            setFormError('Error de conexión');
-        } finally {
-            setSubmitting(false);
-        }
+        } catch (err) { setFormError('Error de conexión'); } 
+        finally { setSubmitting(false); }
     };
 
-    // Handler para Cancelar (DELETE)
+    // handleConfirmCancel (Sin cambios)
     const handleConfirmCancel = async () => {
         if (!cancelingOrden) return;
         setSubmitting(true);
         try {
-            // El backend (ordenes.py) interpreta DELETE como "cancelar"
             const res = await apiFetch(`/api/ordenes/${cancelingOrden.id}`, { method: 'DELETE' });
             if (res && res.status === 200) {
                 setCancelingOrden(null);
-                fetchOrdenes(); // Recargar la lista
+                fetchOrdenes();
             } else {
                 setError(res.data?.message || 'No se pudo cancelar la orden');
             }
-        } catch (err) {
-            setError('Error de conexión');
-        } finally {
-            setSubmitting(false);
-        }
+        } catch (err) { setError('Error de conexión'); } 
+        finally { setSubmitting(false); }
     };
 
-    // Helper para badge de estado
+    // getEstadoBadge (Sin cambios)
     const getEstadoBadge = (estado) => {
         return `badge-estado badge-estado-${estado || 'default'}`;
     };
 
     if (!token) {
-        return (
-            <div className="ordenes-container">
-                <div className="loading-state">Cargando módulo de órdenes...</div>
-            </div>
-        );
+        return (<div className="ordenes-container"><div className="loading-state">Cargando módulo de órdenes...</div></div>);
     }
 
     return (
@@ -509,13 +403,18 @@ function Ordenes({ user, token }) {
                     <p className="header-subtitle">Administra los viajes, despachos y asignaciones de la flota</p>
                 </div>
                 {canWrite && (
-                    <button onClick={() => { setEditingOrden(null); setFormError(null); setShowModal(true); }} className="btn btn-primary">
+                    <button onClick={() => { 
+                        setEditingOrden(null); 
+                        setFormError(null); 
+                        setModalDefaultTab('detalle'); // Abrir en 'detalle' al crear
+                        setShowModal(true); 
+                    }} className="btn btn-primary">
                         ➕ Nueva Orden
                     </button>
                 )}
             </div>
 
-            {/* --- Filtros --- */}
+            {/* Filtros (Sin cambios) */}
             <div className="filtros-container">
                 <div className="search-wrapper-pro">
                     <span className="search-icon-pro">🔍</span>
@@ -527,11 +426,7 @@ function Ordenes({ user, token }) {
                         className="search-input-pro" 
                     />
                 </div>
-                <select 
-                    value={filtroEstado} 
-                    onChange={(e) => setFiltroEstado(e.target.value)} 
-                    className="filtro-estado-select"
-                >
+                <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="filtro-estado-select">
                     <option value="">Todos los Estados</option>
                     <option value="pendiente">PENDIENTE</option>
                     <option value="asignada">ASIGNADA</option>
@@ -543,7 +438,7 @@ function Ordenes({ user, token }) {
 
             {error && <div className="alert-error-pro">⚠️ {error}</div>}
 
-            {/* --- Tabla de Órdenes --- */}
+            {/* Tabla de Órdenes */}
             <div className="table-container">
                 {loading && ordenes.length === 0 ? (
                     <div className="loading-state">Cargando órdenes...</div>
@@ -551,43 +446,60 @@ function Ordenes({ user, token }) {
                     <table className="ordenes-table">
                         <thead>
                             <tr>
-                                <th>ID</th>
-                                <th>Estado</th>
-                                <th>Inicio Programado</th>
-                                <th>Origen</th>
-                                <th>Destino</th>
-                                <th>Vehículo</th>
-                                <th>Conductor</th>
+                                <th>ID</th><th>Estado</th><th>Inicio Programado</th><th>Origen</th>
+                                <th>Destino</th><th>Vehículo</th><th>Conductor</th>
                                 {(canWrite || isAdmin) && <th>Acciones</th>}
                             </tr>
-</thead>
+                        </thead>
                         <tbody>
                             {ordenes.map(o => (
                                 <tr key={o.id}>
                                     <td className="font-bold">#{o.id}</td>
-                                    <td>
-                                        <span className={getEstadoBadge(o.estado)}>
-                                            {o.estado.replace('_', ' ')}
-                                        </span>
-                                    </td>
+                                    <td><span className={getEstadoBadge(o.estado)}>{o.estado.replace('_', ' ')}</span></td>
                                     <td>{formatLocalDate(o.fecha_inicio_programada)}</td>
                                     <td>{o.origen}</td>
                                     <td>{o.destino}</td>
                                     <td>{o.vehiculo ? `${o.vehiculo.placa}` : '-'}</td>
                                     <td>{o.conductor ? `${o.conductor.nombre} ${o.conductor.apellido}` : '-'}</td>
+                                    
+                                    {/* CAMBIO: Lógica de botones de acción */}
                                     {(canWrite || isAdmin) && (
                                         <td>
                                             <div className="action-buttons-pro">
+                                                
+                                                {/* 1. Botón Editar */}
                                                 {canWrite && (
                                                     <button 
-                                                        onClick={() => { setEditingOrden(o); setFormError(null); setShowModal(true); }} 
+                                                        onClick={() => { 
+                                                            setEditingOrden(o); 
+                                                            setFormError(null); 
+                                                            setModalDefaultTab('detalle'); // <-- Abrir en 'detalle'
+                                                            setShowModal(true); 
+                                                        }} 
                                                         className="btn-icon-pro btn-edit-pro"
                                                         title="Editar"
                                                     >
                                                         ✏️
                                                     </button>
                                                 )}
-                                                {/* Solo permitir cancelar si no está completada */}
+                                                
+                                                {/* 2. NUEVO Botón Finalizar */}
+                                                {canWrite && (o.estado === 'asignada' || o.estado === 'en_curso') && (
+                                                     <button 
+                                                        onClick={() => { 
+                                                            setEditingOrden(o); 
+                                                            setFormError(null); 
+                                                            setModalDefaultTab('registro'); // <-- Abrir en 'registro'
+                                                            setShowModal(true); 
+                                                        }} 
+                                                        className="btn-icon-pro" // Puedes añadir un estilo 'btn-complete-pro'
+                                                        title="Finalizar / Registrar KM"
+                                                    >
+                                                        🏁
+                                                    </button>
+                                                )}
+
+                                                {/* 3. Botón Cancelar */}
                                                 {(isAdmin || canWrite) && o.estado !== 'completada' && o.estado !== 'cancelada' && (
                                                     <button 
                                                         onClick={() => setCancelingOrden(o)} 
@@ -623,6 +535,7 @@ function Ordenes({ user, token }) {
                 editingOrden={editingOrden} 
                 apiError={formError} 
                 submitting={submitting} 
+                defaultTab={modalDefaultTab} // <-- CAMBIO: Pasar el estado de la pestaña
             />
 
             <ConfirmationModal 
