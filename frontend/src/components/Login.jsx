@@ -12,7 +12,6 @@ function Login({ onLogin }){
     setLoading(true)
     setError(null)
     try{
-      // Use fetch to local backend mock (/auth/login)
       const res = await fetch('/auth/login', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -20,9 +19,11 @@ function Login({ onLogin }){
       })
       const data = await res.json()
       if(res.ok && data.token){
-        // store token for later use (UI-only)
+        // CRÍTICO: Guardar el token
         localStorage.setItem('token', data.token)
-        onLogin(data.user)
+        console.log('✅ Token guardado:', data.token.substring(0, 20) + '...')
+        // CAMBIO: Pasar tanto el user como el token
+        onLogin(data.user, data.token)
       } else {
         setError(data.message || 'Error en login')
       }

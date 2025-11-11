@@ -178,12 +178,20 @@ function Vehiculos({ user }) {
     const debouncedSearch = useDebounce(searchQuery, 500);
 
     const fetchVehiculos = useCallback(async () => {
+        // CRÍTICO: No hacer fetch si no hay token
+        const token = localStorage.getItem('token');
+        if (!token) {
+            console.warn('⚠️ No hay token disponible, esperando...');
+            return;
+        }
+        
         setLoading(true);
         setError(null);
         const params = new URLSearchParams({ page, per_page: meta.per_page });
         if (debouncedSearch) params.append('search', debouncedSearch);
         
         try {
+            // CAMBIO: Usar /api/vehiculos (SIN barra final) porque el blueprint está en url_prefix='/api/vehiculos'
             const res = await apiFetch(`/api/vehiculos?${params.toString()}`);
             if (res && res.status === 200) {
                 setVehiculos(res.data.data || []);
@@ -203,7 +211,8 @@ function Vehiculos({ user }) {
     const handleFormSubmit = async (formData, vehiculoId) => {
         setSubmitting(true);
         setFormError(null);
-        const url = vehiculoId ? `/api/vehiculos/${vehiculoId}` : '/api/vehiculos/';
+        // CAMBIO: Sin barra final
+        const url = vehiculoId ? `/api/vehiculos/${vehiculoId}` : '/api/vehiculos';
         const method = vehiculoId ? 'PUT' : 'POST';
 
         try {

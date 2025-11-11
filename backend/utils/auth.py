@@ -32,8 +32,10 @@ def decode_token(token: str) -> dict | None:
         payload = jwt.decode(token, secret, algorithms=['HS256'])
         return payload
     except jwt.ExpiredSignatureError:
+        current_app.logger.warning('❌ Token expirado')
         return None
-    except Exception:
+    except Exception as e:
+        current_app.logger.warning(f'❌ Token inválido: {e}')
         return None
 
 
@@ -42,7 +44,6 @@ def get_user_by_email(email: str) -> dict | None:
     supabase = current_app.config.get('SUPABASE')
     if not supabase:
         return None
-    # use ilike for case-insensitive match
     try:
         res = supabase.table('flota_usuarios').select('*').ilike('correo', email).limit(1).execute()
         rows = res.data or []
@@ -105,12 +106,23 @@ def auth_required(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         auth = request.headers.get('Authorization', '')
+        
+        # DEBUG
+        current_app.logger.info(f'🔑 Header Authorization recibido: {auth[:50] if auth else "VACÍO"}...')
+        
         if not auth.startswith('Bearer '):
+            current_app.logger.warning('❌ Token no provisto o formato incorrecto')
             return jsonify({'message': 'Token no provisto'}), 401
+        
         token = auth.split(' ', 1)[1]
+        current_app.logger.info(f'🔍 Intentando decodificar token: {token[:20]}...')
+        
         user = get_user_from_token(token)
         if not user:
+            current_app.logger.warning('❌ Token inválido o usuario no encontrado')
             return jsonify({'message': 'Token inválido o expirado'}), 401
+        
+        current_app.logger.info(f'✅ Usuario autenticado: {user.get("correo")}')
         g.current_user = user
         return func(*args, **kwargs)
 

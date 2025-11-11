@@ -7,26 +7,53 @@ import { apiFetch } from './lib/api'
 
 function App(){
   const [user, setUser] = useState(null)
+  const [token, setToken] = useState(null)
   const [activeModule, setActiveModule] = useState('dashboard')
+  const [loading, setLoading] = useState(true)
 
   useEffect(()=>{
-    const token = localStorage.getItem('token')
-    if(!token) return
+    const savedToken = localStorage.getItem('token')
+    if(!savedToken) {
+      setLoading(false)
+      return
+    }
+    
+    // Establecer el token ANTES de hacer el fetch
+    setToken(savedToken)
+    
     ;(async ()=>{
       const res = await apiFetch('/auth/me')
       if(res && res.status === 200 && res.data && res.data.user){
         setUser(res.data.user)
       } else {
         localStorage.removeItem('token')
+        setToken(null)
       }
+      setLoading(false)
     })()
   }, [])
 
-  if (!user) {
+  const handleLogin = (userData, userToken) => {
+    setUser(userData)
+    setToken(userToken)
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    setUser(null)
+    setToken(null)
+    setActiveModule('dashboard')
+  }
+
+  if (loading) {
+    return <div className="auth-root"><div className="auth-center">Cargando...</div></div>
+  }
+
+  if (!user || !token) {
     return (
       <div className="auth-root">
         <div className="auth-center">
-          <Login onLogin={(u) => setUser(u)} />
+          <Login onLogin={handleLogin} />
         </div>
       </div>
     )
@@ -36,7 +63,7 @@ function App(){
     <div className="app-root">
       <Sidebar 
         user={user} 
-        onLogout={() => { localStorage.removeItem('token'); setUser(null); }} 
+        onLogout={handleLogout} 
         onNavigate={(m)=>setActiveModule(m)} 
       />
       <main className="main-content">
@@ -46,7 +73,7 @@ function App(){
             <p>Selecciona un módulo desde el menú lateral.</p>
           </div>
         )}
-        {activeModule === 'vehiculos' && <Vehiculos user={user} />}
+        {activeModule === 'vehiculos' && <Vehiculos user={user} token={token} />}
         {activeModule === 'conductores' && <div><h2>Módulo Conductores</h2><p>Próximamente...</p></div>}
         {activeModule === 'viajes' && <div><h2>Módulo Viajes</h2><p>Próximamente...</p></div>}
         {activeModule === 'reportes' && <div><h2>Módulo Reportes</h2><p>Próximamente...</p></div>}
