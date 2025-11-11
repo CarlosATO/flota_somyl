@@ -1,3 +1,105 @@
+# --- AÑADIR ESTE CÓDIGO AL FINAL DE backend/modules/ordenes.py ---
+
+@bp.route('/<int:orden_id>/adjuntos', methods=['GET'])
+@auth_required
+def list_adjuntos(orden_id):
+    """Listar todos los adjuntos (fotos) de una orden específica."""
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        # Buscamos en la nueva tabla 'flota_orden_adjuntos'
+        res = supabase.table('flota_orden_adjuntos').select('*') \
+            .eq('orden_id', orden_id) \
+            .order('created_at', desc=True) \
+            .execute()
+        
+        return jsonify({'data': res.data or []})
+        
+    except Exception as e:
+        current_app.logger.error(f"Error listando adjuntos: {e}")
+        return jsonify({'message': 'Error al obtener adjuntos', 'detail': str(e)}), 500
+
+
+@bp.route('/<int:orden_id>/adjuntos', methods=['POST'])
+@auth_required
+def add_adjunto(orden_id):
+    """
+    Guarda la *metadata* de un adjunto (la foto ya se subió al Storage).
+    El frontend nos envía el 'storage_path' y la metadata.
+    """
+    user = g.get('current_user')
+    payload = request.get_json() or {}
+    
+    storage_path = payload.get('storage_path')
+    if not storage_path:
+        return jsonify({'message': 'Falta el "storage_path" (la dirección del archivo)'}), 400
+
+    row = {
+        'orden_id': orden_id,
+        'usuario_id': user.get('id'), # El ID de 'flota_usuarios'
+        'storage_path': storage_path,
+        'nombre_archivo': payload.get('nombre_archivo'),
+        'mime_type': payload.get('mime_type'),
+        'observacion': payload.get('observacion')
+    }
+    
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        res = supabase.table('flota_orden_adjuntos').insert(row).execute()
+        return jsonify({'data': res.data[0]}), 201
+    except Exception as e:
+        current_app.logger.error(f"Error creando adjunto SQL: {e}")
+        return jsonify({'message': 'Error al guardar el registro del adjunto', 'detail': str(e)}), 500
+
+
+@bp.route('/adjuntos/<int:adjunto_id>', methods=['DELETE'])
+@auth_required
+def delete_adjunto(adjunto_id):
+    """
+    Elimina un adjunto. Esta es una operación "senior":
+    1. Borra el registro en la tabla SQL 'flota_orden_adjuntos'.
+    2. Borra el archivo físico del 'Bucket' de Storage.
+    """
+    user = g.get('current_user')
+    # Solo admin o dispatcher pueden borrar
+    if not _has_write_permission(user): 
+         return jsonify({'message': 'Permisos insuficientes'}), 403
+         
+    supabase = current_app.config.get('SUPABASE')
+    
+    # 1. Obtener el 'storage_path' ANTES de borrar el registro SQL
+    storage_path = None
+    try:
+        res = supabase.table('flota_orden_adjuntos').select('storage_path') \
+            .eq('id', adjunto_id).limit(1).execute()
+        if not res.data:
+            return jsonify({'message': 'Adjunto no encontrado'}), 404
+        storage_path = res.data[0].get('storage_path')
+    except Exception as e:
+        return jsonify({'message': 'Error al buscar el adjunto', 'detail': str(e)}), 500
+        
+    # 2. Borrar el registro de la tabla SQL
+    try:
+        supabase.table('flota_orden_adjuntos').delete().eq('id', adjunto_id).execute()
+    except Exception as e:
+        current_app.logger.error(f"Error borrando adjunto SQL: {e}")
+        return jsonify({'message': 'Error al borrar registro de la base de datos', 'detail': str(e)}), 500
+        
+    # 3. Borrar el archivo físico del Storage (¡la bodega!)
+    try:
+        if storage_path:
+            # Usamos el nombre del bucket que creaste
+            bucket_name = 'adjuntos_ordenes'
+            
+            # El storage_path es la "llave" del archivo (ej: 'public/foto.jpg')
+            res_storage = supabase.storage.from_(bucket_name).remove([storage_path])
+            current_app.logger.info(f"Respuesta de borrado de Storage: {res_storage}")
+        
+        return jsonify({'message': 'Adjunto eliminado correctamente (SQL y Storage)'}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error borrando archivo de Storage: {e}")
+        # El registro SQL YA fue borrado, pero el archivo físico quedó huérfano.
+        return jsonify({'message': 'Adjunto eliminado (SQL), pero falló al limpiar el Storage', 'detail': str(e)}), 200
 from flask import Blueprint, request, jsonify, current_app, g
 from backend.utils.auth import auth_required
 from datetime import datetime
