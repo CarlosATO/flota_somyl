@@ -193,7 +193,11 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                                             <label>Vehículo (Placa) <span className="required-star">*</span></label>
                                             <select name="vehiculo_id" value={form.vehiculo_id} onChange={handleChange} required>
                                                 <option value="">Seleccionar vehículo</option>
-                                                {vehiculosList.map(v => (<option key={v.id} value={v.id}>{v.placa} - {v.marca} {v.modelo}</option>))}
+                                                {vehiculosList.map(v => (
+                                                    <option key={v.id} value={v.id}>
+                                                        {v.placa} - {v.marca && v.modelo && v.modelo !== 'Luz' ? `${v.marca} ${v.modelo}` : v.modelo === 'Luz' ? 'Modelo pendiente' : v.modelo || 'Sin modelo'}
+                                                    </option>
+                                                ))}
                                             </select>
                                         </div>
                                         <div className="form-group-pro">
@@ -569,7 +573,9 @@ function Mantenimiento({ user, token }) {
                 <select value={filtroVehiculoId} onChange={(e) => setFiltroVehiculoId(e.target.value)} className="filtro-select">
                     <option value="">🚗 Todos los Vehículos</option>
                     {vehiculosFiltroList.map(v => (
-                        <option key={v.id} value={v.id}>{v.placa} ({v.modelo})</option>
+                        <option key={v.id} value={v.id}>
+                            {v.placa} - {v.marca && v.modelo && v.modelo !== 'Luz' ? `${v.marca} ${v.modelo}` : v.modelo === 'Luz' ? 'Modelo pendiente' : v.modelo || 'Sin modelo'}
+                        </option>
                     ))}
                 </select>
             </div>
@@ -617,7 +623,14 @@ function Mantenimiento({ user, token }) {
                                     <td>
                                         <span className="badge-mant-placa">{m.vehiculo?.placa || 'N/A'}</span>
                                         <br />
-                                        <small>{m.vehiculo?.modelo}</small>
+                                        <small>
+                                            {m.vehiculo?.marca && m.vehiculo?.modelo && m.vehiculo.modelo !== 'Luz'
+                                                ? `${m.vehiculo.marca} ${m.vehiculo.modelo}`.trim()
+                                                : m.vehiculo?.modelo === 'Luz' 
+                                                    ? 'Modelo pendiente'
+                                                    : m.vehiculo?.modelo || 'Sin modelo'
+                                            }
+                                        </small>
                                     </td>
                                     <td><span className={getTipoBadge(m.tipo_mantenimiento)}>{m.tipo_mantenimiento}</span></td>
                                     <td>{m.descripcion}</td>
