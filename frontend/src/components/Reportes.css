@@ -52,7 +52,16 @@
   padding: 1.5rem;
   border-radius: var(--border-radius);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  transition: transform 0.2s ease;
+  transition: all 0.2s ease;
+}
+
+.kpi-card.clickeable {
+  cursor: pointer;
+}
+
+.kpi-card.clickeable:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
 }
 
 .kpi-card:hover {
@@ -64,6 +73,19 @@
 .kpi-card.conductores { border-left-color: var(--color-success); }
 .kpi-card.ordenes { border-left-color: var(--color-warning); }
 .kpi-card.mantenimiento { border-left-color: var(--color-info); }
+
+.kpi-action {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-primary);
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.kpi-card.clickeable:hover .kpi-action {
+  opacity: 1;
+}
 
 .kpi-title {
   font-size: 0.875rem;
@@ -108,6 +130,59 @@
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 1.5rem;
+}
+
+.section-header-collapsible {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 2px solid #f1f5f9;
+  margin-bottom: 1.5rem;
+  transition: all 0.2s ease;
+}
+
+.section-header-collapsible:hover {
+  background: #f8fafc;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  border-radius: 8px;
+}
+
+.section-title-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.section-title-collapsible h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-dark);
+}
+
+.collapse-icon {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  transition: transform 0.2s ease;
+}
+
+.collapsible-content {
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .section-subtitle {
@@ -390,6 +465,126 @@
   font-weight: 600;
 }
 
+/* === Modal de Detalle === */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-detalle {
+  background: white;
+  border-radius: 12px;
+  width: 95%;
+  max-width: 1200px;
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header-detalle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  border-bottom: 2px solid #f1f5f9;
+}
+
+.modal-header-detalle h3 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text-dark);
+}
+
+.btn-close-modal {
+  padding: 0.5rem;
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--color-text-light);
+  line-height: 1;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-close-modal:hover {
+  background: #f1f5f9;
+  color: var(--color-text-dark);
+}
+
+.modal-body-detalle {
+  padding: 1.5rem;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.modal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.modal-table thead {
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.modal-table th {
+  padding: 0.875rem 0.75rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.modal-table tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
+}
+
+.modal-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.modal-table td {
+  padding: 0.875rem 0.75rem;
+  color: var(--color-text-dark);
+}
+
 /* === Responsive === */
 @media (max-width: 1024px) {
   .reportes-container {
@@ -426,4 +621,12 @@
   .reportes-header h2 {
     font-size: 1.5rem;
   }
+}
+
+/* Modal table sizing helper */
+.modal-table {
+  width: 100%;
+  min-width: 800px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
 }
