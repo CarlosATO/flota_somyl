@@ -1,16 +1,92 @@
-.app-root{
-  display: flex;
+/* === LAYOUT PRINCIPAL === */
+.app-container {
   min-height: 100vh;
-  font-family: Inter, system-ui, Arial, sans-serif;
-}
-.main-content{
-  flex:1;
-  padding: 24px;
-  background:#f5f7fa;
-  overflow-x: auto;   /* Permite el scroll horizontal SÓLO aquí */
-  min-width: 0;       /* Truco de Flexbox para que funcione el overflow */
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
 }
 
-/* Auth (login) centered when no user */
-.auth-root{height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fa}
-.auth-center{max-width:480px;width:100%;padding:24px}
+.main-content {
+  flex: 1;
+  padding: 2rem;
+  overflow-x: auto;
+  min-height: calc(100vh - 64px);
+}
+
+/* === DASHBOARD === */
+.dashboard-welcome {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 3rem 0;
+}
+
+.dashboard-welcome h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 0.5rem 0;
+}
+
+.dashboard-welcome p {
+  font-size: 1rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* === LOADING === */
+.loading-screen {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: #f8fafc;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-screen p {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+/* === AUTH === */
+.auth-root {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.auth-center {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 1rem;
+  }
+
+  .dashboard-welcome {
+    padding: 2rem 0;
+  }
+
+  .dashboard-welcome h2 {
+    font-size: 1.5rem;
+  }
+}

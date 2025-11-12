@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import Login from './components/Login'
-import Sidebar from './components/Sidebar'
+import TopBar from './components/TopBar'
 import Vehiculos from './components/Vehiculos'
 import Conductores from './components/Conductores'
 import Ordenes from './components/Ordenes'
@@ -22,7 +22,6 @@ function App(){
       return
     }
     
-    // Establecer el token ANTES de hacer el fetch
     setToken(savedToken)
     
     ;(async ()=>{
@@ -50,7 +49,12 @@ function App(){
   }
 
   if (loading) {
-    return <div className="auth-root"><div className="auth-center">Cargando...</div></div>
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner"></div>
+        <p>Cargando...</p>
+      </div>
+    )
   }
 
   if (!user || !token) {
@@ -64,17 +68,18 @@ function App(){
   }
 
   return (
-    <div className="app-root">
-      <Sidebar 
+    <div className="app-container">
+      <TopBar 
         user={user} 
         onLogout={handleLogout} 
-        onNavigate={(m)=>setActiveModule(m)} 
+        onNavigate={(m)=>setActiveModule(m)}
+        activeModule={activeModule}
       />
       <main className="main-content">
         {activeModule === 'dashboard' && (
-          <div>
+          <div className="dashboard-welcome">
             <h2>Bienvenido, {user.nombre || user.correo}</h2>
-            <p>Selecciona un módulo desde el menú lateral.</p>
+            <p>Selecciona un módulo desde el menú superior para comenzar.</p>
           </div>
         )}
         {activeModule === 'vehiculos' && <Vehiculos user={user} token={token} />}

@@ -100,7 +100,7 @@ function Login({ onLogin }){
           </form>
 
           <div className="form-footer">
-            <p>© 2025 Sistema de Gestión de Flotas Carlos Alegría</p>
+            <p>© 2025 Sistema de Gestión de Flotas de Carlos Alegría</p>
           </div>
         </div>
       </div>
