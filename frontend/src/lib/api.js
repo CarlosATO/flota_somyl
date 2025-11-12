@@ -39,15 +39,16 @@ export async function apiFetch(path, options = {}){
     const data = text ? JSON.parse(text) : null
 
     // Global handler: if token is invalid or expired, force logout
-    if(res.status === 401){
-      console.error('❌ Token inválido/expirado - redirigiendo a login')
-      try{
-        localStorage.removeItem('token')
-      }catch(e){}
-      if(typeof window !== 'undefined'){
-        window.location.replace('/')
-      }
-    }
+    // NOTA: Deshabilitado para permitir que componentes individuales manejen errores 401
+    // if(res.status === 401){
+    //   console.error('❌ Token inválido/expirado - redirigiendo a login')
+    //   try{
+    //     localStorage.removeItem('token')
+    //   }catch(e){}
+    //   if(typeof window !== 'undefined'){
+    //     window.location.replace('/')
+    //   }
+    // }
 
     return { status: res.status, data }
   }catch(e){

@@ -333,6 +333,24 @@ function Mantenimiento({ user, token }) {
     const isAdmin = useMemo(() => (user?.cargo || '').toLowerCase() === 'administrador', [user?.cargo]);
     const debouncedSearch = useDebounce(searchQuery, 500);
 
+    // Función para verificar si el token es válido
+    const verifyToken = useCallback(async () => {
+        try {
+            console.log('🔧 Verifying token...');
+            const res = await apiFetch('/auth/me');
+            if (res && res.status === 200) {
+                console.log('🔧 Token is valid');
+                return true;
+            } else {
+                console.log('🔧 Token is invalid');
+                return false;
+            }
+        } catch (err) {
+            console.error('🔧 Error verifying token:', err);
+            return false;
+        }
+    }, []);
+
     const fetchVehiculosList = useCallback(async () => {
         try {
             // Obtenemos una lista simple de vehículos para el filtro
@@ -349,6 +367,15 @@ function Mantenimiento({ user, token }) {
         console.log('🔧 fetchMantenimientos called');
         setLoading(true);
         setError(null);
+        
+        // Verificar que tengamos token antes de hacer la petición
+        if (!token) {
+            console.log('🔧 No token available, skipping');
+            setError('No has iniciado sesión');
+            setLoading(false);
+            return;
+        }
+        
         const params = new URLSearchParams({ page, per_page: meta.per_page });
         if (debouncedSearch) params.append('search', debouncedSearch);
         if (filtroEstado) params.append('estado', filtroEstado);
@@ -358,28 +385,48 @@ function Mantenimiento({ user, token }) {
             console.log('🔧 Making API call to:', `/api/mantenimiento/?${params.toString()}`);
             const res = await apiFetch(`/api/mantenimiento/?${params.toString()}`);
             console.log('🔧 API response:', res);
+            
             if (res && res.status === 200) {
                 setMantenimientos(res.data.data || []);
                 setMeta(res.data.meta || { page: 1, per_page: 20, total: 0, pages: 1 });
+            } else if (res && res.status === 401) {
+                console.log('🔧 Token inválido, redirigiendo al login');
+                setError('Sesión expirada. Redirigiendo al login...');
+                // Dar tiempo para que el usuario vea el mensaje antes de redirigir
+                setTimeout(() => {
+                    window.location.replace('/');
+                }, 2000);
             } else {
-                setError(res.data?.message || 'Error cargando mantenimientos');
+                setError(res.data?.message || `Error ${res.status}: ${res.data?.message || 'Error desconocido'}`);
             }
         } catch (err) {
             console.error('🔧 Error in fetchMantenimientos:', err);
             setError('Error de conexión - verifica tu conexión a internet');
+        } finally {
             setLoading(false);
         }
-    }, [page, debouncedSearch, filtroEstado, filtroVehiculoId, meta.per_page]);
+    }, [page, debouncedSearch, filtroEstado, filtroVehiculoId, meta.per_page, token]);
 
     useEffect(() => {
         console.log('🔧 useEffect triggered', { token: !!token });
         if (token) {
-            fetchMantenimientos();
-            fetchVehiculosList();
+            // Primero verificar que el token sea válido
+            verifyToken().then(isValid => {
+                if (isValid) {
+                    fetchMantenimientos();
+                    fetchVehiculosList();
+                } else {
+                    console.log('🔧 Token inválido, redirigiendo');
+                    setError('Sesión expirada. Redirigiendo al login...');
+                    setTimeout(() => {
+                        window.location.replace('/');
+                    }, 2000);
+                }
+            });
         } else {
             console.log('🔧 No token available, skipping API calls');
         }
-    }, [token, fetchMantenimientos, fetchVehiculosList]);
+    }, [token, verifyToken, fetchMantenimientos, fetchVehiculosList]);
 
     // Timeout para evitar carga infinita
     useEffect(() => {
@@ -388,7 +435,7 @@ function Mantenimiento({ user, token }) {
                 console.warn('🔧 Loading timeout reached');
                 setLoading(false);
                 setError('Tiempo de espera agotado. Verifica tu conexión.');
-            }, 10000); // 10 segundos
+            }, 5000); // 5 segundos
             return () => clearTimeout(timeout);
         }
     }, [loading]);
