@@ -1,6 +1,6 @@
-from flask import Blueprint, request, jsonify, current_app
-from ..utils.auth import auth_required
-from datetime import datetime
+from flask import Blueprint, request, jsonify, current_app, g
+from ..utils.auth import authenticate, generate_token, auth_required, _has_write_permission, _is_admin
+from datetime import datetime, timedelta
 import numbers
 
 try:
@@ -11,6 +11,8 @@ except ImportError:
 
 bp = Blueprint('vehiculos', __name__)
 
+# === HELPERS DE VEHÍCULOS (EXISTENTES) ===
+
 def _normalize_placa(p: str) -> str:
     if not p:
         return p
@@ -20,25 +22,15 @@ def _check_required_fields(payload: dict, required_fields: list) -> list:
     missing = [field for field in required_fields if not payload.get(field)]
     return missing
 
-def _has_write_permission(user: dict) -> bool:
-    cargo = (user.get('cargo') or '').lower()
-    return cargo in ('administrador', 'dispatcher')
-
-def _is_admin(user: dict) -> bool:
-    return (user.get('cargo') or '').lower() == 'administrador'
-
 def _safe_int(value):
-    """Convierte a int de forma segura, manejando floats y strings"""
     if value is None or value == '':
         return None
     try:
-        # Si es float, convertir primero a float y luego a int
         return int(float(value))
     except (ValueError, TypeError):
         return None
 
 def _safe_float(value):
-    """Convierte a float de forma segura"""
     if value is None or value == '':
         return None
     try:
@@ -46,10 +38,29 @@ def _safe_float(value):
     except (ValueError, TypeError):
         return None
 
+def _safe_date(value):
+    """Convierte fecha de forma segura (formato: YYYY-MM-DD)"""
+    if not value:
+        return None
+    try:
+        if isinstance(value, str) and 'T' in value:
+            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            return dt.date().isoformat()
+        if isinstance(value, str):
+            return datetime.strptime(value, '%Y-%m-%d').date().isoformat()
+        return None
+    except (ValueError, TypeError):
+        current_app.logger.warning(f"Fecha inválida para documento: {value}")
+        return None
+
+
+# === RUTAS PRINCIPALES DE VEHÍCULOS (CRUD) (Sin cambios funcionales) ===
+
 @bp.route('/', methods=['GET'])
 @auth_required
 def list_vehiculos():
     """Listar vehículos con búsqueda, paginación y filtros."""
+    # ... (Lógica de list_vehiculos, sin cambios) ...
     supabase = current_app.config.get('SUPABASE')
     if not supabase:
         return jsonify({'message': 'Error de configuración: Supabase no disponible'}), 500
@@ -103,7 +114,7 @@ def list_vehiculos():
 @bp.route('/<int:veh_id>', methods=['GET'])
 @auth_required
 def get_vehiculo(veh_id):
-    """Obtener un vehículo por ID."""
+    # ... (Lógica de get_vehiculo, sin cambios) ...
     supabase = current_app.config.get('SUPABASE')
     
     try:
@@ -120,7 +131,7 @@ def get_vehiculo(veh_id):
 @bp.route('/', methods=['POST'])
 @auth_required
 def create_vehiculo():
-    """Crear un nuevo vehículo en la flota."""
+    # ... (Lógica de create_vehiculo, sin cambios) ...
     user = g.get('current_user')
     if not _has_write_permission(user):
         return jsonify({'message': 'Permisos insuficientes. Solo Administrador o Despachador pueden crear vehículos'}), 403
@@ -135,13 +146,11 @@ def create_vehiculo():
 
     placa_norm = _normalize_placa(payload.get('placa'))
     
-    # CORRECCIÓN: Usar _safe_int para año
     ano_val = _safe_int(payload.get('ano'))
     if ano_val is None:
         return jsonify({'message': 'El campo "ano" debe ser un número entero válido.'}), 400
 
-    # CORRECCIÓN: Convertir capacidad_kg a int (no float) si la DB espera integer
-    capacidad_kg_val = _safe_int(payload.get('capacidad_kg'))  # Cambio de _safe_float a _safe_int
+    capacidad_kg_val = _safe_int(payload.get('capacidad_kg'))
     
     row = {
         'placa': placa_norm,
@@ -163,7 +172,6 @@ def create_vehiculo():
         return jsonify({'data': res.data[0]}), 201
     except PostgrestAPIError as e:
         current_app.logger.error(f"Error Supabase (POST): {e}")
-        # CORRECCIÓN: No usar .status_code, usar solo el mensaje
         error_str = str(e).lower()
         if 'duplicate key' in error_str or '23505' in error_str:
              return jsonify({'message': f'La placa "{placa_norm}" ya existe en la base de datos.'}), 409
@@ -176,7 +184,7 @@ def create_vehiculo():
 @bp.route('/<int:veh_id>', methods=['PUT'])
 @auth_required
 def update_vehiculo(veh_id):
-    """Actualizar un vehículo existente por ID."""
+    # ... (Lógica de update_vehiculo, sin cambios) ...
     user = g.get('current_user')
     if not _has_write_permission(user):
         return jsonify({'message': 'Permisos insuficientes. Solo Administrador o Despachador pueden actualizar vehículos'}), 403
@@ -184,7 +192,6 @@ def update_vehiculo(veh_id):
     payload = request.get_json() or {}
     updates = {}
     
-    # CORRECCIÓN: Procesar campos con las funciones seguras
     if 'placa' in payload:
         updates['placa'] = _normalize_placa(payload['placa'])
     if 'vin' in payload:
@@ -211,7 +218,7 @@ def update_vehiculo(veh_id):
     if 'capacidad_pasajeros' in payload:
         updates['capacidad_pasajeros'] = _safe_int(payload['capacidad_pasajeros'])
     if 'capacidad_kg' in payload:
-        updates['capacidad_kg'] = _safe_int(payload['capacidad_kg'])  # Cambio a int
+        updates['capacidad_kg'] = _safe_int(payload['capacidad_kg'])
 
     if not updates:
         return jsonify({'message': 'No se proporcionaron campos válidos para actualizar.'}), 400
@@ -236,7 +243,7 @@ def update_vehiculo(veh_id):
 @bp.route('/<int:veh_id>', methods=['DELETE'])
 @auth_required
 def delete_vehiculo(veh_id):
-    """Eliminar (soft-delete) un vehículo por ID."""
+    # ... (Lógica de delete_vehiculo, sin cambios) ...
     user = g.get('current_user')
     if not _is_admin(user):
         return jsonify({'message': 'Permisos insuficientes. Solo Administrador puede eliminar vehículos permanentemente'}), 403
@@ -252,3 +259,215 @@ def delete_vehiculo(veh_id):
     except Exception as e:
         current_app.logger.error(f"Error al eliminar vehículo {veh_id}: {e}")
         return jsonify({'message': 'Error al realizar el soft-delete del vehículo', 'detail': str(e)}), 500
+
+# === RUTAS DE DOCUMENTOS VEHICULARES (CRUD de flota_vehiculos_documentos) ===
+
+@bp.route('/<int:veh_id>/documentos', methods=['GET'])
+@auth_required
+def list_documentos_vehiculo(veh_id):
+    """Lista todos los documentos de cumplimiento para un vehículo."""
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        res = supabase.table('flota_vehiculos_documentos').select('*') \
+            .eq('vehiculo_id', veh_id) \
+            .is_('deleted_at', None) \
+            .order('fecha_vencimiento', desc=False) \
+            .execute()
+        return jsonify({'data': res.data or []})
+    except Exception as e:
+        current_app.logger.error(f"Error al listar documentos de vehículo {veh_id}: {e}")
+        return jsonify({'message': 'Error al obtener documentos del vehículo'}), 500
+
+
+@bp.route('/documentos', methods=['POST'])
+@auth_required
+def create_documento_vehiculo():
+    """Crea un nuevo registro de documento para un vehículo."""
+    user = g.get('current_user')
+    if not _has_write_permission(user):
+        return jsonify({'message': 'Permisos insuficientes'}), 403
+
+    supabase = current_app.config.get('SUPABASE')
+    payload = request.get_json() or {}
+
+    required_fields = ['vehiculo_id', 'tipo_documento', 'fecha_vencimiento']
+    missing = _check_required_fields(payload, required_fields)
+    if missing:
+        return jsonify({'message': f'Faltan campos requeridos: {", ".join(missing)}'}), 400
+
+    row = {
+        'vehiculo_id': _safe_int(payload.get('vehiculo_id')),
+        'tipo_documento': payload.get('tipo_documento'),
+        'numero_documento': payload.get('numero_documento'),
+        'fecha_emision': _safe_date(payload.get('fecha_emision')),
+        'fecha_vencimiento': _safe_date(payload.get('fecha_vencimiento')),
+        'observaciones': payload.get('observaciones'),
+    }
+    
+    if not row['vehiculo_id']:
+        return jsonify({'message': 'ID de vehículo inválido o faltante'}), 400
+
+    try:
+        res = supabase.table('flota_vehiculos_documentos').insert(row).execute()
+        return jsonify({'data': res.data[0]}), 201
+    except PostgrestAPIError as e:
+        current_app.logger.error(f"Error Supabase (POST Documento): {e}")
+        return jsonify({'message': 'Error al crear documento', 'detail': str(e)}), 500
+    except Exception as e:
+        current_app.logger.error(f"Error al crear documento: {e}")
+        return jsonify({'message': 'Error inesperado al crear documento', 'detail': str(e)}), 500
+
+
+@bp.route('/documentos/<int:doc_id>', methods=['PUT'])
+@auth_required
+def update_documento_vehiculo(doc_id):
+    """Actualiza un registro de documento."""
+    user = g.get('current_user')
+    if not _has_write_permission(user):
+        return jsonify({'message': 'Permisos insuficientes'}), 403
+
+    supabase = current_app.config.get('SUPABASE')
+    payload = request.get_json() or {}
+    updates = {}
+    
+    if 'tipo_documento' in payload: updates['tipo_documento'] = payload['tipo_documento']
+    if 'numero_documento' in payload: updates['numero_documento'] = payload['numero_documento']
+    if 'observaciones' in payload: updates['observaciones'] = payload['observaciones']
+    
+    if 'fecha_emision' in payload: updates['fecha_emision'] = _safe_date(payload['fecha_emision'])
+    if 'fecha_vencimiento' in payload: updates['fecha_vencimiento'] = _safe_date(payload['fecha_vencimiento'])
+
+    if not updates:
+        return jsonify({'message': 'No hay campos válidos para actualizar'}), 400
+
+    try:
+        res = supabase.table('flota_vehiculos_documentos').update(updates).eq('id', doc_id).execute()
+        if res.data:
+            return jsonify({'data': res.data[0]})
+        return jsonify({'message': 'Documento no encontrado'}), 404
+    except Exception as e:
+        current_app.logger.error(f"Error al actualizar documento {doc_id}: {e}")
+        return jsonify({'message': 'Error inesperado al actualizar documento', 'detail': str(e)}), 500
+
+
+@bp.route('/documentos/<int:doc_id>', methods=['DELETE'])
+@auth_required
+def delete_documento_vehiculo(doc_id):
+    """Elimina (soft-delete) un registro de documento."""
+    user = g.get('current_user')
+    if not _is_admin(user):
+        return jsonify({'message': 'Permisos insuficientes'}), 403
+
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        res = supabase.table('flota_vehiculos_documentos').update({'deleted_at': datetime.now().isoformat()}).eq('id', doc_id).execute()
+        
+        if res.data:
+            return jsonify({'message': f'Documento {doc_id} marcado como eliminado.'}), 200
+        return jsonify({'message': 'Documento no encontrado para eliminar'}), 404
+        
+    except Exception as e:
+        current_app.logger.error(f"Error al eliminar documento {doc_id}: {e}")
+        return jsonify({'message': 'Error al realizar el soft-delete del documento', 'detail': str(e)}), 500
+
+
+# === RUTAS DE ADJUNTOS DE DOCUMENTOS (CRUD de flota_vehiculo_doc_adjuntos) ===
+
+@bp.route('/documentos/<int:doc_id>/adjuntos', methods=['GET'])
+@auth_required
+def list_doc_adjuntos(doc_id):
+    """Lista todos los adjuntos de un registro de documento."""
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        res = supabase.table('flota_vehiculo_doc_adjuntos').select('*') \
+            .eq('documento_id', doc_id) \
+            .order('created_at', desc=True) \
+            .execute()
+        return jsonify({'data': res.data or []})
+    except Exception as e:
+        current_app.logger.error(f"Error al listar adjuntos de documento {doc_id}: {e}")
+        return jsonify({'message': 'Error al obtener adjuntos de documento'}), 500
+
+
+@bp.route('/documentos/<int:doc_id>/adjuntos', methods=['POST'])
+@auth_required
+def add_doc_adjunto(doc_id):
+    """Agrega un registro de adjunto a un documento."""
+    user = g.get('current_user')
+    if not _has_write_permission(user): 
+         return jsonify({'message': 'Permisos insuficientes'}), 403
+         
+    payload = request.get_json() or {}
+    storage_path = payload.get('storage_path')
+    if not storage_path:
+        return jsonify({'message': 'Falta storage_path'}), 400
+
+    row = {
+        'documento_id': doc_id,
+        'usuario_id': user.get('id'),
+        'storage_path': storage_path,
+        'nombre_archivo': payload.get('nombre_archivo'),
+        'mime_type': payload.get('mime_type'),
+        'observacion': payload.get('observacion'),
+    }
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        res = supabase.table('flota_vehiculo_doc_adjuntos').insert(row).execute()
+        return jsonify({'data': res.data[0]}), 201
+    except Exception as e:
+        current_app.logger.error(f"Error al guardar adjunto de documento: {e}")
+        return jsonify({'message': 'Error al guardar adjunto de documento'}), 500
+
+
+@bp.route('/adjuntos/<int:adjunto_id>', methods=['DELETE'])
+@auth_required
+def delete_doc_adjunto(adjunto_id):
+    """Elimina un registro de adjunto de documento y su archivo de Storage."""
+    user = g.get('current_user')
+    if not _has_write_permission(user): 
+         return jsonify({'message': 'Permisos insuficientes'}), 403
+         
+    supabase = current_app.config.get('SUPABASE')
+    storage_path = None
+    
+    # 1. Obtener el path del archivo de Storage
+    try:
+        res = supabase.table('flota_vehiculo_doc_adjuntos').select('storage_path') \
+            .eq('id', adjunto_id).limit(1).execute()
+        if not res.data:
+            return jsonify({'message': 'Adjunto de documento no encontrado'}), 404
+        storage_path = res.data[0].get('storage_path')
+    except Exception as e:
+        return jsonify({'message': 'Error al buscar adjunto de documento'}), 500
+        
+    # 2. Borrar el registro de la DB
+    try:
+        supabase.table('flota_vehiculo_doc_adjuntos').delete().eq('id', adjunto_id).execute()
+    except Exception as e:
+        return jsonify({'message': 'Error al borrar registro de adjunto'}), 500
+        
+    # 3. Borrar el archivo de Supabase Storage
+    try:
+        if storage_path:
+            # Usar el bucket 'adjuntos_ordenes' por consistencia
+            supabase.storage.from_('adjuntos_ordenes').remove([storage_path])
+        return jsonify({'message': 'Adjunto de documento eliminado'}), 200
+    except Exception as e:
+        current_app.logger.error(f"Error al borrar archivo de Storage: {e}")
+        return jsonify({'message': 'Registro eliminado, pero falló la eliminación del archivo en Storage'}), 200
+
+
+# === RUTA DE ALERTAS DE DOCUMENTOS ===
+
+@bp.route('/alertas/documentos', methods=['GET'])
+@auth_required
+def alertas_documentos():
+    """Retorna documentos de vehículos próximos a vencer (vista flota_vehiculos_documentos_alertas)."""
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        # Consulta la vista creada
+        res = supabase.table('flota_vehiculos_documentos_alertas').select('*').execute()
+        return jsonify({'data': res.data or []})
+    except Exception as e:
+        current_app.logger.error(f"Error obteniendo alertas de documentos: {e}")
+        return jsonify({'message': 'Error al obtener alertas de documentos'}), 500

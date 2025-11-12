@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, g
 from ..utils.auth import auth_required
 from datetime import datetime
 import re
@@ -145,7 +145,10 @@ def create_conductor():
         'licencia_vencimiento': _safe_date(payload.get('licencia_vencimiento')),
         'telefono': payload.get('telefono'),
         'email': payload.get('email'),
-        'estado': payload.get('estado', 'activo'),
+        'direccion': _normalize_text(payload.get('direccion')) if payload.get('direccion') else None,
+        'fecha_nacimiento': _safe_date(payload.get('fecha_nacimiento')),
+        'fecha_ingreso': _safe_date(payload.get('fecha_ingreso')),
+        'estado': payload.get('estado', 'ACTIVO'),
         'observaciones': payload.get('observaciones'),
     }
 
@@ -194,6 +197,14 @@ def update_conductor(conductor_id):
         updates['telefono'] = payload['telefono']
     if 'email' in payload:
         updates['email'] = payload['email']
+    if 'direccion' in payload:
+        updates['direccion'] = _normalize_text(payload['direccion']) if payload['direccion'] else None
+    if 'fecha_nacimiento' in payload:
+        fecha = _safe_date(payload['fecha_nacimiento'])
+        updates['fecha_nacimiento'] = fecha if fecha else None
+    if 'fecha_ingreso' in payload:
+        fecha = _safe_date(payload['fecha_ingreso'])
+        updates['fecha_ingreso'] = fecha if fecha else None
     if 'estado' in payload:
         updates['estado'] = payload['estado']
     if 'observaciones' in payload:

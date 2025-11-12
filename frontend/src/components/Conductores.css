@@ -1,3 +1,4 @@
+/* Conductores - Sistema de gestión de conductores con badges de estado */
 :root {
   --color-primary: #007bff;
   --color-primary-hover: #0056b3;
@@ -156,6 +157,7 @@
 
 .conductores-table thead th {
   padding: 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   font-weight: 600;
   border: none;
@@ -185,17 +187,29 @@
   padding: 1rem;
   color: var(--color-text-dark);
   vertical-align: middle;
-  white-space: nowrap;  /* ← AGREGAR ESTA LÍNEA */
 }
 
-.font-bold {
+/* Badges específicos de conductores */
+.conductor-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.conductor-name-cell strong {
   font-weight: 600;
+  color: var(--color-text-dark);
+}
+
+.conductor-name-cell small {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
 }
 
 .badge-rut {
   display: inline-block;
   padding: 0.375rem 0.75rem;
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border-radius: 0.25rem;
   font-weight: 700;
@@ -204,54 +218,99 @@
   font-family: 'Courier New', monospace;
 }
 
-.badge-estado-activo {
+.licencia-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.licencia-numero {
+  font-weight: 600;
+  color: var(--color-text-dark);
+}
+
+.badge-licencia-tipo {
   display: inline-block;
-  padding: 0.25rem 0.75rem;
+  padding: 0.2rem 0.5rem;
+  background-color: #e7f3ff;
+  color: #0056b3;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.badge-licencia {
+  display: inline-block;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-licencia-vigente {
   background-color: #d4edda;
   color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.badge-licencia-proxima {
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeeba;
+}
+
+.badge-licencia-vencida {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.badge-estado {
+  display: inline-block;
+  padding: 0.375rem 0.75rem;
   border-radius: 1rem;
   font-size: 0.8rem;
   font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-estado-activo {
+  background-color: #d4edda;
+  color: #155724;
 }
 
 .badge-estado-inactivo {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
   background-color: #f8d7da;
   color: #721c24;
-  border-radius: 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.badge-estado-vacaciones {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
-  background-color: #d1ecf1;
-  color: #0c5460;
-  border-radius: 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
 }
 
 .badge-estado-licencia {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
   background-color: #fff3cd;
   color: #856404;
-  border-radius: 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
 }
 
-.badge-estado-default {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
+.badge-estado-vacaciones {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+.badge-estado-otro {
   background-color: var(--color-bg-light);
   color: var(--color-text-dark);
-  border-radius: 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
+}
+
+.contact-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.contact-link:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
 }
 
 .action-buttons-pro {
@@ -303,7 +362,6 @@
   background-color: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   animation: fadeIn 0.2s ease;
-  padding: 1rem;
 }
 
 @keyframes fadeIn {
@@ -317,6 +375,7 @@
   box-shadow: var(--shadow-lg);
   width: 100%;
   max-height: 90vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   animation: slideUp 0.3s ease;
@@ -349,7 +408,6 @@
   border-bottom: 2px solid var(--color-bg-light);
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  flex-shrink: 0;
 }
 
 .modal-header-pro h3 {
@@ -378,7 +436,6 @@
   justify-content: center;
   transition: all 0.2s ease;
   line-height: 1;
-  flex-shrink: 0;
 }
 
 .modal-close-pro:hover {
@@ -391,7 +448,6 @@
   display: flex;
   background-color: var(--color-bg-light);
   border-bottom: 2px solid var(--color-border);
-  flex-shrink: 0;
 }
 
 .tab-button {
@@ -418,12 +474,11 @@
   border-bottom-color: #667eea;
 }
 
-/* Modal body - CRÍTICO: permitir scroll */
+/* Modal body */
 .modal-body-pro {
   padding: 2rem;
   overflow-y: auto;
-  flex: 1 1 auto;  /* <-- Permite que crezca y se encoja */
-  min-height: 0;   /* <-- Truco de Flexbox para que el scroll funcione */
+  flex: 1;
 }
 
 .modal-error-pro {
@@ -432,7 +487,7 @@
   color: #c00;
   border: 1px solid #fcc;
   border-radius: var(--border-radius);
-  margin: 0 0 1.5rem 0;
+  margin: 1.5rem 2rem 0;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -445,10 +500,6 @@
   75% { transform: translateX(5px); }
 }
 
-.error-icon-pro {
-  font-size: 1.25rem;
-}
-
 .tab-content {
   animation: fadeIn 0.3s ease;
 }
@@ -456,10 +507,6 @@
 /* Formulario profesional */
 .form-section-pro {
   margin-bottom: 2rem;
-}
-
-.form-section-pro:last-child {
-  margin-bottom: 0;
 }
 
 .section-title-pro {
@@ -532,7 +579,7 @@
   font-style: italic;
 }
 
-/* Modal footer - CRÍTICO: mantener fijo */
+/* Modal footer */
 .modal-footer-pro {
   display: flex;
   justify-content: flex-end;
@@ -540,7 +587,6 @@
   padding: 1.5rem 2rem;
   border-top: 2px solid var(--color-bg-light);
   background-color: var(--color-bg-light);
-  flex-shrink: 0;
 }
 
 .btn-secondary-pro {
@@ -611,8 +657,8 @@
   font-style: italic;
 }
 
-/* Paginación */
-.pagination {
+/* Paginación profesional */
+.pagination-pro {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -621,9 +667,43 @@
   border-top: 2px solid var(--color-bg-light);
 }
 
-.pagination-controls {
+.pagination-info {
+  font-size: 0.9rem;
+  color: var(--color-text-light);
+}
+
+.pagination-buttons {
   display: flex;
   gap: 0.5rem;
+}
+
+.pagination-btn {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: 2px solid var(--color-border);
+  background-color: white;
+  color: var(--color-text-dark);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: #667eea;
+  background-color: #667eea;
+  color: white;
+}
+
+.pagination-btn.active {
+  border-color: #667eea;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Responsive */
@@ -645,12 +725,14 @@
     font-size: 0.85rem;
     padding: 0.75rem 1rem;
   }
-
-  .modal-overlay {
-    padding: 0.5rem;
+  
+  .pagination-pro {
+    flex-direction: column;
+    gap: 1rem;
   }
-
-  .modal-content {
-    max-height: 95vh;
+  
+  .pagination-buttons {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 }

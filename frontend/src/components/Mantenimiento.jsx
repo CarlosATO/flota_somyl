@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../lib/api';
+import { supabase } from '../lib/supabase'; // Importamos supabase para Storage
 import './Mantenimiento.css';
 
 // --- HELPERS (Reusando lógica existente) ---
@@ -43,11 +44,138 @@ const formatDateForInput = (dateString) => {
 
 const formatCurrency = (value) => {
     if (value === null || value === undefined) return '-';
-    // Aseguramos que solo se muestre el valor si es un número válido
     if (isNaN(parseFloat(value))) return '-';
     try {
         return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', minimumFractionDigits: 0 }).format(value);
     } catch (e) { return String(value); }
+};
+
+// --- COMPONENTE UPLOADER REUTILIZABLE para MANTENIMIENTO ---
+const MantFileUploader = ({ mantId, onUploadSuccess, disabled }) => {
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadError, setUploadError] = useState(null);
+
+    const handleFileChange = async (e) => {
+        if (!e.target.files || e.target.files.length === 0 || !mantId) {
+             setUploadError("Debe seleccionar un archivo y la orden debe estar creada (guardada).");
+             return;
+        }
+
+        const file = e.target.files[0];
+
+        if (file.size > 10 * 1024 * 1024) { // 10MB Límite
+            setUploadError("El archivo es muy grande (máx 10MB).");
+            return;
+        }
+
+        setIsUploading(true);
+        setUploadError(null);
+
+        try {
+            // 1. Sanitizar nombre y crear path (usando 'mantenimiento' como carpeta raíz)
+            const fileExt = file.name.split('.').pop();
+            const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
+                .toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/__+/g, '_');
+            const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
+            // IMPORTANTE: Definimos el path para que no colisione con órdenes de viaje
+            const filePath = `mantenimiento/${mantId}/${safeFileName}`;
+
+            // 2. Subir a Supabase Storage (usando el bucket existente 'adjuntos_ordenes')
+            const { error: uploadError } = await supabase.storage
+                .from('adjuntos_ordenes') // Bucket de Órdenes y Mantenimiento
+                .upload(filePath, file);
+
+            if (uploadError) throw new Error(uploadError.message);
+
+            // 3. Guardar en Backend (Flask)
+            const res = await apiFetch(`/api/mantenimiento/${mantId}/adjuntos`, {
+                method: 'POST',
+                body: {
+                    storage_path: filePath,
+                    nombre_archivo: file.name,
+                    mime_type: file.type,
+                }
+            });
+
+            if (res.status === 201) {
+                onUploadSuccess(res.data); // Devolvemos el adjunto
+            } else {
+                throw new Error(res.data?.message || 'Error guardando adjunto');
+            }
+        } catch (err) {
+            console.error(err);
+            setUploadError(err.message || String(err));
+        } finally {
+            setIsUploading(false);
+            e.target.value = null;
+        }
+    };
+
+    return (
+        <div className="adjuntos-container">
+            {uploadError && <div className="modal-error-pro" style={{marginBottom: '1rem'}}><span>📤</span> {uploadError}</div>}
+            <div className="uploader-box">
+                <input
+                    type="file"
+                    id={`mant-file-upload`}
+                    onChange={handleFileChange}
+                    accept="image/*,application/pdf"
+                    disabled={isUploading || disabled}
+                />
+                <label htmlFor={`mant-file-upload`} className={`uploader-label ${disabled ? 'disabled' : ''}`}>
+                    Seleccionar archivo...
+                </label>
+                <p className="uploader-hint">JPG, PNG o PDF (Máx 10MB)</p>
+                {isUploading && <p className="upload-progress">⏳ Subiendo archivo...</p>}
+            </div>
+        </div>
+    );
+};
+
+// --- LISTA DE ADJUNTOS REUTILIZABLE para MANTENIMIENTO ---
+const MantAdjuntosList = ({ adjuntos, loading, onDelete }) => {
+
+    const getPublicUrl = (storagePath) => {
+        try {
+            const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(storagePath);
+            return data.publicUrl;
+        } catch (e) { return '#'; }
+    };
+
+    if (loading) {
+        return <p className="loading-adjuntos">Cargando adjuntos...</p>
+    }
+
+    if (adjuntos.length === 0) {
+        return <p className="loading-adjuntos">📂 No hay archivos adjuntos.</p>
+    }
+
+    return (
+        <div className="adjuntos-list">
+            {adjuntos.map(adj => (
+                <div key={adj.id} className="adjunto-item">
+                    <div className="adjunto-info">
+                        <span className="adjunto-icon">
+                            {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
+                        </span>
+                        <span className="adjunto-name">
+                            <a href={getPublicUrl(adj.storage_path)} target="_blank" rel="noopener noreferrer">
+                                {adj.nombre_archivo || adj.storage_path}
+                            </a>
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        className="adjunto-delete-btn"
+                        title="Eliminar adjunto"
+                        onClick={() => onDelete(adj.id)}
+                    >
+                        ×
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
 };
 
 // --- MODAL FORMULARIO ---
@@ -58,15 +186,19 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
     const [vehiculosList, setVehiculosList] = useState([]);
     const [loadingLists, setLoadingLists] = useState(false);
 
-    const requiredFields = ['vehiculo_id', 'descripcion', 'fecha_programada'];
+    // Estados para adjuntos
+    const [adjuntos, setAdjuntos] = useState([]);
+    const [loadingAdjuntos, setLoadingAdjuntos] = useState(false);
 
-    // Cargar la lista de vehículos (Necesario para el select)
+    const requiredFields = ['vehiculo_id', 'descripcion', 'fecha_programada'];
+    const mantIdActual = editingMantenimiento?.id; // Usamos el ID de la orden
+
+    // Cargar listas (Vehículos)
     useEffect(() => {
         if (!isOpen) return;
         const fetchVehicles = async () => {
             setLoadingLists(true);
             try {
-                // Obtenemos todos los vehículos para el select
                 const resVeh = await apiFetch('/api/vehiculos/?per_page=500');
                 if (resVeh.status === 200) setVehiculosList(resVeh.data.data || []);
             } catch (e) { console.error("Error cargando vehículos", e); }
@@ -75,7 +207,21 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
         fetchVehicles();
     }, [isOpen]);
 
-    // Inicializar formulario
+    // Función para cargar adjuntos
+    const fetchAdjuntos = useCallback(async (mantId) => {
+        setLoadingAdjuntos(true);
+        try {
+            const res = await apiFetch(`/api/mantenimiento/${mantId}/adjuntos`);
+            if (res.status === 200) {
+                setAdjuntos(res.data.data || []);
+            }
+        } catch(e) {
+            console.error("Error cargando adjuntos", e);
+        }
+        setLoadingAdjuntos(false);
+    }, []);
+
+    // Inicializar formulario y adjuntos
     useEffect(() => {
         if (editingMantenimiento) {
             setForm({
@@ -83,15 +229,15 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                 descripcion: editingMantenimiento.descripcion || '',
                 tipo_mantenimiento: editingMantenimiento.tipo_mantenimiento || 'PREVENTIVO',
                 estado: editingMantenimiento.estado || 'PENDIENTE',
-
                 fecha_programada: formatDateForInput(editingMantenimiento.fecha_programada),
                 km_programado: editingMantenimiento.km_programado || '',
-
                 fecha_realizacion: formatDateForInput(editingMantenimiento.fecha_realizacion),
                 km_realizacion: editingMantenimiento.km_realizacion || '',
                 costo: editingMantenimiento.costo || '',
                 observaciones: editingMantenimiento.observaciones || '',
             });
+            // Cargar adjuntos si estamos editando
+            fetchAdjuntos(editingMantenimiento.id);
         } else {
             setForm({
                 vehiculo_id: '', descripcion: '', tipo_mantenimiento: 'PREVENTIVO',
@@ -99,21 +245,21 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                 km_programado: '', fecha_realizacion: '', km_realizacion: '',
                 costo: '', observaciones: ''
             });
+            setAdjuntos([]); // Limpiar adjuntos si es nuevo
         }
         setActiveTab('programacion');
-    }, [editingMantenimiento, isOpen]);
+    }, [editingMantenimiento, isOpen, fetchAdjuntos]);
 
     const handleChange = (e) => {
         const { name, value, type } = e.target;
         let finalValue = value;
 
         if (type === 'number' || name.endsWith('_id')) {
-            // Manejar números (incluyendo floats para costo)
             finalValue = value ? (name === 'costo' ? parseFloat(value) : parseInt(value, 10)) : '';
         } else if (name === 'descripcion' || name === 'observaciones') {
-            finalValue = value; // Mantener case en descripciones
+            finalValue = value;
         } else if (typeof value === 'string') {
-            finalValue = value.toUpperCase(); // Otros campos a mayúsculas
+            finalValue = value.toUpperCase();
         }
 
         setForm({ ...form, [name]: finalValue });
@@ -123,23 +269,47 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
         e.preventDefault();
         const payload = { ...form };
 
-        // Limpiar campos vacíos antes de enviar (convertir a null si es '')
         Object.keys(payload).forEach(key => {
             if (payload[key] === '' || payload[key] === undefined || payload[key] === null) {
                 payload[key] = null;
             }
         });
 
-        // Validaciones UX adicionales
         if (payload.costo && payload.costo < 0) {
             alert('El costo no puede ser negativo.');
             return;
         }
 
-        onSave(payload, editingMantenimiento ? editingMantenimiento.id : null);
+        onSave(payload, mantIdActual);
     };
 
+    // --- Handlers de Adjuntos ---
+    const handleUploadSuccess = (res) => {
+        setAdjuntos(prev => [res.data, ...prev]);
+        // Re-seleccionar pestaña de adjuntos si se subió con éxito
+        setActiveTab('adjuntos');
+    };
+
+    const handleDeleteAdjunto = async (adjuntoId) => {
+        if (!window.confirm("¿Estás seguro de eliminar este archivo?")) return;
+
+        try {
+            // El endpoint de DELETE usa la ruta centralizada con el ID del adjunto
+            const res = await apiFetch(`/api/mantenimiento/adjuntos/${adjuntoId}`, { method: 'DELETE' });
+            if (res.status === 200) {
+                setAdjuntos(adjuntos.filter(a => a.id !== adjuntoId));
+            } else {
+                throw new Error(res.data?.message || 'Error al borrar');
+            }
+        } catch (err) {
+            console.error(err);
+            alert(`Error al eliminar: ${err.message}`);
+        }
+    };
+    // --- Fin Handlers de Adjuntos ---
+
     const isFormInvalid = requiredFields.some(field => !form[field]);
+    const canUpload = !!mantIdActual; // Solo se puede subir si la orden existe
 
     if (!isOpen) return null;
 
@@ -170,22 +340,31 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                             className={`tab-button ${activeTab === 'programacion' ? 'active' : ''}`}
                             onClick={() => setActiveTab('programacion')}
                         >
-                            📅 Programación y Detalle
+                            📅 1. Detalle y Programación
                         </button>
                         <button
                             type="button"
                             className={`tab-button ${activeTab === 'cierre' ? 'active' : ''}`}
                             onClick={() => setActiveTab('cierre')}
                         >
-                            🏁 Ejecución y Costo
+                            🏁 2. Ejecución y Costo
+                        </button>
+                        <button
+                            type="button"
+                            className={`tab-button ${activeTab === 'adjuntos' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('adjuntos')}
+                        >
+                            📎 3. Adjuntos ({adjuntos.length})
                         </button>
                     </div>
 
                     <div className="modal-body-pro">
                         {loadingLists && <div className="loading-state">Cargando...</div>}
 
+                        {/* --- Pestaña 1: Programación --- */}
                         {activeTab === 'programacion' && !loadingLists && (
                             <div className="tab-content">
+                                {/* ... (Controles de Programación y Detalle existentes) ... */}
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Detalles Básicos</h4>
                                     <div className="form-grid-2">
@@ -193,11 +372,7 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                                             <label>Vehículo (Placa) <span className="required-star">*</span></label>
                                             <select name="vehiculo_id" value={form.vehiculo_id} onChange={handleChange} required>
                                                 <option value="">Seleccionar vehículo</option>
-                                                {vehiculosList.map(v => (
-                                                    <option key={v.id} value={v.id}>
-                                                        {v.placa} - {v.marca && v.modelo && v.modelo !== 'Luz' ? `${v.marca} ${v.modelo}` : v.modelo === 'Luz' ? 'Modelo pendiente' : v.modelo || 'Sin modelo'}
-                                                    </option>
-                                                ))}
+                                                {vehiculosList.map(v => (<option key={v.id} value={v.id}>{v.placa} - {v.marca} {v.modelo}</option>))}
                                             </select>
                                         </div>
                                         <div className="form-group-pro">
@@ -240,8 +415,10 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                             </div>
                         )}
 
+                        {/* --- Pestaña 2: Cierre --- */}
                         {activeTab === 'cierre' && !loadingLists && (
                             <div className="tab-content">
+                                {/* ... (Controles de Ejecución y Costo existentes) ... */}
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Registro de Ejecución</h4>
                                     <div className="form-grid-2">
@@ -268,6 +445,34 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                                         <label>Observaciones / Detalle</label>
                                         <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="4" className="textarea-pro" placeholder="Detalle de repuestos, proveedor, o notas de la ejecución."></textarea>
                                     </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* --- Pestaña 3: Adjuntos (¡NUEVO!) --- */}
+                        {activeTab === 'adjuntos' && (
+                            <div className="tab-content">
+                                <div className="form-section-pro">
+                                    <h4 className="section-title-pro">Documentos, Facturas o Fotos del Servicio</h4>
+
+                                    {!canUpload && (
+                                        <div className="modal-error-pro" style={{marginBottom: '1rem'}}>
+                                            <span>ℹ️</span>
+                                            <span>Para subir adjuntos, primero debe **crear y guardar** la orden de mantenimiento.</span>
+                                        </div>
+                                    )}
+
+                                    <MantFileUploader
+                                        mantId={mantIdActual}
+                                        onUploadSuccess={handleUploadSuccess}
+                                        disabled={!canUpload}
+                                    />
+
+                                    <MantAdjuntosList
+                                        adjuntos={adjuntos}
+                                        loading={loadingAdjuntos}
+                                        onDelete={handleDeleteAdjunto}
+                                    />
                                 </div>
                             </div>
                         )}

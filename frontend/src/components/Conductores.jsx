@@ -1,12 +1,8 @@
-// En: frontend/src/components/Ordenes.jsx
-// --- VERSIÓN CON LÓGICA DE PESTAÑAS MEJORADA ---
-
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../lib/api';
-import { supabase } from '../lib/supabase';
-import './Ordenes.css';
+import './Conductores.css';
 
-// --- (useDebounce, Pagination, formatLocalDate, formatDateTimeForInput: SIN CAMBIOS) ---
+// --- UTILIDADES ---
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -15,350 +11,144 @@ const useDebounce = (value, delay) => {
     }, [value, delay]);
     return debouncedValue;
 };
-const Pagination = ({ meta, onPageChange }) => {
-    if (!meta || meta.pages <= 1) return null;
-    return (
-        <div className="pagination">
-            <span>Página {meta.page} de {meta.pages} (Total: {meta.total})</span>
-            <div className="pagination-controls">
-                <button onClick={() => onPageChange(meta.page - 1)} disabled={meta.page <= 1} className="btn btn-secondary">Anterior</button>
-                <button onClick={() => onPageChange(meta.page + 1)} disabled={meta.page >= meta.pages} className="btn btn-secondary">Siguiente</button>
-            </div>
-        </div>
-    );
-};
-const formatLocalDate = (dateString) => {
-    if (!dateString) return '-';
-    try {
-        const date = new Date(dateString);
-        return date.toLocaleString('es-CL', {
-            day: '2-digit', month: '2-digit', year: 'numeric',
-            hour: '2-digit', minute: '2-digit', hour12: false
-        });
-    } catch (e) { return dateString; }
-};
-const formatDateTimeForInput = (dateString) => {
+
+const formatDateForInput = (dateString) => {
     if (!dateString) return '';
     try {
         const date = new Date(dateString);
-        const offset = date.getTimezoneOffset();
-        const localDate = new Date(date.getTime() - (offset * 60 * 1000));
-        return localDate.toISOString().slice(0, 16);
-    } catch (e) { return ''; }
+        return date.toISOString().split('T')[0];
+    } catch (e) {
+        return '';
+    }
 };
 
-// --- COMPONENTE UPLOADER REUTILIZABLE ---
-// (Movemos la lógica de UI del uploader a su propio componente)
-const FileUploader = ({ ordenId, tipoAdjunto, onUploadSuccess, disabled }) => {
-    const [isUploading, setIsUploading] = useState(false);
-    const [uploadError, setUploadError] = useState(null);
-
-    const handleFileChange = async (e) => {
-        if (!e.target.files || e.target.files.length === 0 || !ordenId) return;
-        
-        const file = e.target.files[0];
-        
-        if (file.size > 10 * 1024 * 1024) { // 10MB Límite
-            setUploadError("El archivo es muy grande (máx 10MB).");
-            return;
-        }
-
-        setIsUploading(true);
-        setUploadError(null);
-        
-        try {
-            // 1. Sanitizar nombre y crear path
-            const fileExt = file.name.split('.').pop();
-            const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
-                .toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/__+/g, '_');
-            const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
-            const filePath = `${ordenId}/${safeFileName}`;
-
-            // 2. Subir a Supabase Storage
-            const { error: uploadError } = await supabase.storage
-                .from('adjuntos_ordenes')
-                .upload(filePath, file);
-
-            if (uploadError) throw new Error(uploadError.message);
-
-            // 3. Guardar en Backend (Flask)
-            const res = await apiFetch(`/api/ordenes/${ordenId}/adjuntos`, {
-                method: 'POST',
-                body: {
-                    storage_path: filePath,
-                    nombre_archivo: file.name,
-                    mime_type: file.type,
-                    tipo_adjunto: tipoAdjunto // <-- ¡Enviamos la etiqueta!
-                }
-            });
-
-            if (res.status === 201) {
-                onUploadSuccess(res.data); // Devolvemos el adjunto
-            } else {
-                throw new Error(res.data?.message || 'Error guardando adjunto');
-            }
-        } catch (err) {
-            console.error(err);
-            setUploadError(err.message);
-        } finally {
-            setIsUploading(false);
-            e.target.value = null; 
-        }
-    };
-
+// --- COMPONENTE DE PAGINACIÓN ---
+const Pagination = ({ meta, onPageChange }) => {
+    if (!meta || meta.pages <= 1) return null;
+    
+    const pages = [];
+    const maxPagesToShow = 5;
+    let startPage = Math.max(1, meta.page - Math.floor(maxPagesToShow / 2));
+    let endPage = Math.min(meta.pages, startPage + maxPagesToShow - 1);
+    
+    if (endPage - startPage < maxPagesToShow - 1) {
+        startPage = Math.max(1, endPage - maxPagesToShow + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+    }
+    
     return (
-        <div className="adjuntos-container">
-            {uploadError && <div className="modal-error-pro" style={{marginBottom: '1rem'}}>{uploadError}</div>}
-            <div className="uploader-box">
-                <input 
-                    type="file" 
-                    id={`file-upload-${tipoAdjunto}`}
-                    onChange={handleFileChange}
-                    accept="image/*,application/pdf"
-                    disabled={isUploading || disabled}
-                />
-                <label htmlFor={`file-upload-${tipoAdjunto}`} className={`uploader-label ${disabled ? 'disabled' : ''}`}>
-                    Seleccionar archivo...
-                </label>
-                <p className="uploader-hint">JPG, PNG o PDF (Máx 10MB)</p>
-                {isUploading && <p className="upload-progress">Subiendo...</p>}
+        <div className="pagination-pro">
+            <div className="pagination-info">
+                Mostrando {((meta.page - 1) * meta.per_page) + 1} - {Math.min(meta.page * meta.per_page, meta.total)} de {meta.total} conductores
+            </div>
+            <div className="pagination-buttons">
+                <button 
+                    onClick={() => onPageChange(1)} 
+                    disabled={meta.page === 1}
+                    className="pagination-btn"
+                    title="Primera página"
+                >
+                    «
+                </button>
+                <button 
+                    onClick={() => onPageChange(meta.page - 1)} 
+                    disabled={meta.page === 1}
+                    className="pagination-btn"
+                >
+                    ‹ Anterior
+                </button>
+                
+                {pages.map(p => (
+                    <button
+                        key={p}
+                        onClick={() => onPageChange(p)}
+                        className={`pagination-btn ${p === meta.page ? 'active' : ''}`}
+                    >
+                        {p}
+                    </button>
+                ))}
+                
+                <button 
+                    onClick={() => onPageChange(meta.page + 1)} 
+                    disabled={meta.page >= meta.pages}
+                    className="pagination-btn"
+                >
+                    Siguiente ›
+                </button>
+                <button 
+                    onClick={() => onPageChange(meta.pages)} 
+                    disabled={meta.page === meta.pages}
+                    className="pagination-btn"
+                    title="Última página"
+                >
+                    »
+                </button>
             </div>
         </div>
     );
 };
 
-// --- LISTA DE ADJUNTOS REUTILIZABLE ---
-const AdjuntosList = ({ adjuntos, loading, onDelete }) => {
-    
-    const getPublicUrl = (storagePath) => {
-        try {
-            const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(storagePath);
-            return data.publicUrl;
-        } catch (e) { return '#'; }
-    };
-    
-    if (loading) {
-        return <p className="loading-adjuntos">Cargando adjuntos...</p>
-    }
-    
-    if (adjuntos.length === 0) {
-        return <p className="loading-adjuntos">No hay archivos adjuntos.</p>
-    }
-
-    return (
-        <div className="adjuntos-list">
-            {adjuntos.map(adj => (
-                <div key={adj.id} className="adjunto-item">
-                    <div className="adjunto-info">
-                        <span className="adjunto-icon">
-                            {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
-                        </span>
-                        <span className="adjunto-name">
-                            <a href={getPublicUrl(adj.storage_path)} target="_blank" rel="noopener noreferrer">
-                                {adj.nombre_archivo || adj.storage_path}
-                            </a>
-                        </span>
-                    </div>
-                    <button 
-                        type="button" 
-                        className="adjunto-delete-btn"
-                        title="Eliminar adjunto"
-                        onClick={() => onDelete(adj.id)}
-                    >
-                        ×
-                    </button>
-                </div>
-            ))}
-        </div>
-    );
-};
-
-
-// --- Componente del Modal ---
-
-const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submitting, defaultTab = 'detalle' }) => {
-    
-    const [activeTab, setActiveTab] = useState(defaultTab);
+// --- MODAL DE FORMULARIO CON PESTAÑAS ---
+const ConductorFormModal = ({ isOpen, onClose, onSave, editingConductor, apiError, submitting }) => {
     const [form, setForm] = useState({});
+    const [activeTab, setActiveTab] = useState('personal');
     
-    const [vehiculosList, setVehiculosList] = useState([]);
-    const [conductoresList, setConductoresList] = useState([]);
-    const [loadingLists, setLoadingLists] = useState(false);
+    const requiredFields = ['nombre', 'apellido', 'rut'];
 
-    // --- ESTADOS DE ADJUNTOS SEPARADOS ---
-    const [adjuntosInicio, setAdjuntosInicio] = useState([]);
-    const [adjuntosCierre, setAdjuntosCierre] = useState([]);
-    const [loadingAdjuntos, setLoadingAdjuntos] = useState(false);
-    
-    const [tempOrdenId, setTempOrdenId] = useState(null);
-    const [uploadError, setUploadError] = useState(null); // Errores de upload
-    
-    const requiredFields = ['fecha_inicio_programada', 'origen', 'destino', 'descripcion'];
-
-    // Cargar listas (Sin cambios)
     useEffect(() => {
-        if (!isOpen) return;
-        const fetchLists = async () => {
-            setLoadingLists(true);
-            try {
-                const resVeh = await apiFetch('/api/vehiculos/?per_page=500');
-                if (resVeh.status === 200) setVehiculosList(resVeh.data.data || []);
-                const resCond = await apiFetch('/api/conductores/?per_page=500');
-                if (resCond.status === 200) setConductoresList(resCond.data.data || []);
-            } catch (e) { console.error("Error cargando listas", e); }
-            setLoadingLists(false);
-        };
-        fetchLists();
-    }, [isOpen]);
-
-    // Función para cargar adjuntos, ahora reutilizable
-    const fetchAdjuntos = useCallback(async (ordenId) => {
-        setLoadingAdjuntos(true);
-        const res = await apiFetch(`/api/ordenes/${ordenId}/adjuntos`);
-        if (res.status === 200) {
-            const todos = res.data.data || [];
-            // Filtramos por el nuevo tipo
-            setAdjuntosInicio(todos.filter(a => a.tipo_adjunto === 'inicio'));
-            setAdjuntosCierre(todos.filter(a => a.tipo_adjunto === 'cierre'));
-        }
-        setLoadingAdjuntos(false);
-    }, []);
-
-    // Cargar datos del formulario Y ADJUNTOS
-    useEffect(() => {
-        if (isOpen) {
-            setActiveTab(defaultTab);
-            setUploadError(null);
-            setTempOrdenId(null); 
-        }
-
-        if (editingOrden) {
+        if (editingConductor) {
             setForm({
-                fecha_inicio_programada: formatDateTimeForInput(editingOrden.fecha_inicio_programada),
-                fecha_fin_programada: formatDateTimeForInput(editingOrden.fecha_fin_programada),
-                fecha_inicio_real: formatDateTimeForInput(editingOrden.fecha_inicio_real),
-                fecha_fin_real: formatDateTimeForInput(editingOrden.fecha_fin_real),
-                origen: editingOrden.origen || '',
-                destino: editingOrden.destino || '',
-                descripcion: editingOrden.descripcion || '',
-                estado: editingOrden.estado || 'pendiente',
-                vehiculo_id: editingOrden.vehiculo_id || '',
-                conductor_id: editingOrden.conductor_id || '',
-                kilometraje_inicio: editingOrden.kilometraje_inicio || '',
-                kilometraje_fin: editingOrden.kilometraje_fin || '',
-                observaciones: editingOrden.observaciones || '',
+                nombre: editingConductor.nombre || '',
+                apellido: editingConductor.apellido || '',
+                rut: editingConductor.rut || '',
+                licencia_numero: editingConductor.licencia_numero || '',
+                licencia_tipo: editingConductor.licencia_tipo || '',
+                licencia_vencimiento: formatDateForInput(editingConductor.licencia_vencimiento),
+                telefono: editingConductor.telefono || '',
+                email: editingConductor.email || '',
+                direccion: editingConductor.direccion || '',
+                fecha_nacimiento: formatDateForInput(editingConductor.fecha_nacimiento),
+                fecha_ingreso: formatDateForInput(editingConductor.fecha_ingreso),
+                estado: editingConductor.estado || 'ACTIVO',
+                observaciones: editingConductor.observaciones || '',
             });
-
-            // Cargar adjuntos
-            fetchAdjuntos(editingOrden.id);
-
         } else {
-            // Limpiar formulario para "Crear"
             setForm({
-                fecha_inicio_programada: formatDateTimeForInput(new Date().toISOString()),
-                fecha_fin_programada: '', fecha_inicio_real: '', fecha_fin_real: '',
-                origen: '', destino: '', descripcion: '', estado: 'pendiente',
-                vehiculo_id: '', conductor_id: '', kilometraje_inicio: '',
-                kilometraje_fin: '', observaciones: '',
+                nombre: '', apellido: '', rut: '', licencia_numero: '', licencia_tipo: '',
+                licencia_vencimiento: '', telefono: '', email: '', direccion: '',
+                fecha_nacimiento: '', fecha_ingreso: '', estado: 'ACTIVO', observaciones: ''
             });
-            setAdjuntosInicio([]); // Limpiar adjuntos
-            setAdjuntosCierre([]); // Limpiar adjuntos
         }
-    }, [editingOrden, isOpen, defaultTab, fetchAdjuntos]);
+        setActiveTab('personal');
+    }, [editingConductor, isOpen]);
 
-    // HandleChange (Sin cambios)
     const handleChange = (e) => {
-        const { name, value } = e.target;
+        const { name, value, type } = e.target;
         let finalValue = value;
-        if (name === 'vehiculo_id' || name === 'conductor_id' || name === 'kilometraje_inicio' || name === 'kilometraje_fin') {
-            finalValue = value ? parseInt(value, 10) : '';
+        
+        // Convertir a mayúsculas campos específicos
+        if (type !== 'number' && type !== 'email' && type !== 'date' && name !== 'observaciones' && typeof value === 'string') {
+            finalValue = value.toUpperCase();
         }
+        
         setForm({ ...form, [name]: finalValue });
     };
 
-    // HandleSubmit (Sin cambios, usa la lógica de 2 filas)
-    const handleSubmit = async (e) => {
+    const handleSubmit = (e) => {
         e.preventDefault();
-        
-        if (form.estado === 'completada' && !form.fecha_fin_real) {
-            setUploadError('No puedes completar la orden sin registrar la Fecha de Fin Real (pestaña Cierre).');
-            setActiveTab('registro');
-            return;
-        }
-        
-        const payload = { ...form };
-        try {
-            if (payload.fecha_inicio_programada) payload.fecha_inicio_programada = new Date(payload.fecha_inicio_programada).toISOString();
-            if (payload.fecha_fin_programada) payload.fecha_fin_programada = new Date(payload.fecha_fin_programada).toISOString();
-            if (payload.fecha_inicio_real) payload.fecha_inicio_real = new Date(payload.fecha_inicio_real).toISOString();
-            if (payload.fecha_fin_real) payload.fecha_fin_real = new Date(payload.fecha_fin_real).toISOString();
-        } catch (e) { console.error("Error formateando fechas", e); }
-        
-        const ordenIdParaGuardar = editingOrden ? editingOrden.id : tempOrdenId;
-        await onSave(payload, ordenIdParaGuardar);
-    };
-
-    // --- Handler para CREAR BORRADOR (si es necesario) ---
-    const getOrdenIdParaAdjuntos = async () => {
-        let ordenId = editingOrden ? editingOrden.id : tempOrdenId;
-        
-        if (!ordenId) {
-            console.log('📝 No hay orden, creando borrador...');
-            setUploadError(null);
-            
-            const borradorPayload = {
-                fecha_inicio_programada: form.fecha_inicio_programada || new Date().toISOString(),
-                origen: form.origen || 'Por definir',
-                destino: form.destino || 'Por definir',
-                descripcion: form.descripcion || 'Borrador - completar datos',
-                estado: 'pendiente'
-            };
-            
-            // Llamamos a onSave (handleFormSubmit) para crear el borrador
-            const borradorGuardado = await onSave(borradorPayload, null);
-            
-            if (borradorGuardado && borradorGuardado.id) {
-                ordenId = borradorGuardado.id;
-                setTempOrdenId(ordenId); // Guardamos el ID del borrador
-                console.log('✅ Borrador creado con ID:', ordenId);
-            } else {
-                setUploadError('No se pudo crear el borrador de la orden.');
-                return null;
+        const payload = {};
+        Object.keys(form).forEach(key => {
+            if (form[key] !== '' && form[key] !== null) {
+                payload[key] = form[key];
             }
-        }
-        return ordenId;
-    };
-    
-    // --- Handler de ÉXITO DE SUBIDA ---
-    const handleUploadSuccess = (nuevoAdjunto) => {
-        if (nuevoAdjunto.tipo_adjunto === 'cierre') {
-            setAdjuntosCierre(prev => [nuevoAdjunto, ...prev]);
-        } else {
-            setAdjuntosInicio(prev => [nuevoAdjunto, ...prev]);
-        }
-    };
-
-    // --- Handler para borrar archivos ---
-    const handleDeleteAdjunto = async (adjuntoId) => {
-        if (!window.confirm("¿Estás seguro de eliminar este archivo?")) return;
-        setUploadError(null);
-        try {
-            const res = await apiFetch(`/api/adjuntos/${adjuntoId}`, { method: 'DELETE' });
-            if (res.status === 200) {
-                // Borrar de la lista local
-                setAdjuntosInicio(prev => prev.filter(a => a.id !== adjuntoId));
-                setAdjuntosCierre(prev => prev.filter(a => a.id !== adjuntoId));
-            } else {
-                throw new Error(res.data?.message || 'Error al borrar');
-            }
-        } catch (err) {
-            console.error(err);
-            setUploadError(err.message);
-        }
+        });
+        onSave(payload, editingConductor ? editingConductor.id : null);
     };
 
     const isFormInvalid = requiredFields.some(field => !form[field]);
-    const ordenIdActual = editingOrden?.id || tempOrdenId;
 
     if (!isOpen) return null;
 
@@ -367,130 +157,231 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
             <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header-pro">
                     <div>
-                        <h3>{editingOrden ? 'Editar Orden de Servicio' : 'Crear Nueva Orden'}</h3>
+                        <h3>{editingConductor ? 'Editar Conductor' : 'Registrar Nuevo Conductor'}</h3>
                         <p className="modal-subtitle">
-                            {editingOrden ? `Modificando Orden #${editingOrden.id}` : (tempOrdenId ? `Borrador Orden #${tempOrdenId}` : 'Completa los detalles')}
+                            {editingConductor ? 'Modifica los datos del conductor' : 'Completa la información del conductor'}
                         </p>
                     </div>
                     <button onClick={onClose} className="modal-close-pro" type="button">×</button>
                 </div>
                 
                 <form onSubmit={handleSubmit}>
-                    {apiError && <div className="modal-error-pro"><span>⚠</span> {apiError}</div>}
-                    {uploadError && <div className="modal-error-pro"><span>📤</span> {uploadError}</div>}
+                    {apiError && (
+                        <div className="modal-error-pro">
+                            <span>⚠</span>
+                            <span>{apiError}</span>
+                        </div>
+                    )}
 
                     <div className="modal-tabs">
-                        <button type="button" className={`tab-button ${activeTab === 'detalle' ? 'active' : ''}`} onClick={() => setActiveTab('detalle')}>📍 1. Datos y Partida</button>
-                        <button type="button" className={`tab-button ${activeTab === 'asignacion' ? 'active' : ''}`} onClick={() => setActiveTab('asignacion')}>👤 2. Asignación</button>
-                        <button type="button" className={`tab-button ${activeTab === 'registro' ? 'active' : ''}`} onClick={() => setActiveTab('registro')}>🏁 3. Cierre (KM y Fotos)</button>
+                        <button type="button" className={`tab-button ${activeTab === 'personal' ? 'active' : ''}`} onClick={() => setActiveTab('personal')}>
+                            👤 Datos Personales
+                        </button>
+                        <button type="button" className={`tab-button ${activeTab === 'licencia' ? 'active' : ''}`} onClick={() => setActiveTab('licencia')}>
+                            🪪 Licencia
+                        </button>
+                        <button type="button" className={`tab-button ${activeTab === 'contacto' ? 'active' : ''}`} onClick={() => setActiveTab('contacto')}>
+                            📞 Contacto
+                        </button>
+                        <button type="button" className={`tab-button ${activeTab === 'adicional' ? 'active' : ''}`} onClick={() => setActiveTab('adicional')}>
+                            📝 Adicional
+                        </button>
                     </div>
 
                     <div className="modal-body-pro">
-                        {loadingLists && <div className="loading-state">Cargando...</div>}
-
-                        {/* --- Pestaña 1: Detalles y Partida --- */}
-                        {activeTab === 'detalle' && !loadingLists && (
+                        {activeTab === 'personal' && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Servicio Programado</h4>
+                                    <h4 className="section-title-pro">Información Personal</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro"><label>Origen <span className="required-star">*</span></label><input name="origen" value={form.origen} onChange={handleChange} required /></div>
-                                        <div className="form-group-pro"><label>Destino <span className="required-star">*</span></label><input name="destino" value={form.destino} onChange={handleChange} required /></div>
-                                    </div>
-                                    <div className="form-group-pro" style={{marginTop: '1.25rem'}}><label>Descripción / Motivo <span className="required-star">*</span></label><textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows="3" className="textarea-pro" required></textarea></div>
-                                    <div className="form-grid-2" style={{marginTop: '1.25rem'}}>
-                                        <div className="form-group-pro"><label>Inicio Programado <span className="required-star">*</span></label><input name="fecha_inicio_programada" type="datetime-local" value={form.fecha_inicio_programada} onChange={handleChange} required /></div>
-                                        <div className="form-group-pro"><label>Fin Programado</label><input name="fecha_fin_programada" type="datetime-local" value={form.fecha_fin_programada} onChange={handleChange} /></div>
-                                    </div>
-                                </div>
-                                
-                                {/* --- ¡NUEVO! Sección de Partida --- */}
-                                <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Registro de Partida (Real)</h4>
-                                    <div className="form-grid-2">
-                                        <div className="form-group-pro"><label>Inicio Real</label><input name="fecha_inicio_real" type="datetime-local" value={form.fecha_inicio_real} onChange={handleChange} /></div>
-                                        <div className="form-group-pro"><label>KM Inicio</label><input name="kilometraje_inicio" type="number" value={form.kilometraje_inicio} onChange={handleChange} /></div>
-                                    </div>
-                                </div>
-                                
-                                <div className="form-section-pro">
-                                    <h4 className="section-title-pro">📷 Adjuntos de Inicio (Ej: Guías)</h4>
-                                    <FileUploader 
-                                        ordenId={ordenIdActual} // ID actual (sea de edición o borrador)
-                                        tipoAdjunto="inicio"
-                                        onUploadSuccess={handleUploadSuccess}
-                                        disabled={!ordenIdActual} // Deshabilitado si es orden nueva sin borrador
-                                    />
-                                    {/* Info box si es orden nueva */}
-                                    {!editingOrden && !tempOrdenId && (
-                                        <div className="upload-info-box">
-                                            ℹ️ Para adjuntar archivos, primero completa y <strong>guarda la orden</strong>, o sube un archivo (se creará un borrador).
+                                        <div className="form-group-pro">
+                                            <label>Nombre <span className="required-star">*</span></label>
+                                            <input 
+                                                name="nombre" 
+                                                value={form.nombre} 
+                                                onChange={handleChange} 
+                                                placeholder="Ej: JUAN" 
+                                                required 
+                                            />
                                         </div>
-                                    )}
-                                    <AdjuntosList 
-                                        adjuntos={adjuntosInicio}
-                                        loading={loadingAdjuntos}
-                                        onDelete={handleDeleteAdjunto}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                        
-                        {/* --- Pestaña 2: Asignación (Sin cambios) --- */}
-                        {activeTab === 'asignacion' && !loadingLists && (
-                            <div className="tab-content">
-                                {/* ... (contenido sin cambios) ... */}
-                            </div>
-                        )}
-
-                        {/* --- Pestaña 3: Cierre (KM y Fotos) --- */}
-                        {activeTab === 'registro' && !loadingLists && (
-                            <div className="tab-content">
-                                <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Registro de Cierre (Real)</h4>
-                                    <div className="form-grid-2">
-                                        <div className="form-group-pro"><label>Fin Real</label><input name="fecha_fin_real" type="datetime-local" value={form.fecha_fin_real} onChange={handleChange} /></div>
-                                        <div className="form-group-pro"><label>KM Fin</label><input name="kilometraje_fin" type="number" value={form.kilometraje_fin} onChange={handleChange} /></div>
+                                        <div className="form-group-pro">
+                                            <label>Apellido <span className="required-star">*</span></label>
+                                            <input 
+                                                name="apellido" 
+                                                value={form.apellido} 
+                                                onChange={handleChange} 
+                                                placeholder="Ej: PÉREZ" 
+                                                required 
+                                            />
+                                        </div>
                                     </div>
-                                </div>
-                                
-                                <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Notas Adicionales</h4>
+                                    <div className="form-grid-3">
+                                        <div className="form-group-pro">
+                                            <label>RUT <span className="required-star">*</span></label>
+                                            <input 
+                                                name="rut" 
+                                                value={form.rut} 
+                                                onChange={handleChange} 
+                                                placeholder="Ej: 12345678-9" 
+                                                required 
+                                            />
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Fecha de Nacimiento</label>
+                                            <input 
+                                                name="fecha_nacimiento" 
+                                                type="date" 
+                                                value={form.fecha_nacimiento} 
+                                                onChange={handleChange} 
+                                            />
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Fecha de Ingreso</label>
+                                            <input 
+                                                name="fecha_ingreso" 
+                                                type="date" 
+                                                value={form.fecha_ingreso} 
+                                                onChange={handleChange} 
+                                            />
+                                        </div>
+                                    </div>
                                     <div className="form-group-pro">
-                                        <label>Observaciones (Conductor o Dispatcher)</label>
-                                        <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="4" className="textarea-pro"></textarea>
+                                        <label>Estado</label>
+                                        <select name="estado" value={form.estado} onChange={handleChange}>
+                                            <option value="ACTIVO">ACTIVO</option>
+                                            <option value="INACTIVO">INACTIVO</option>
+                                            <option value="LICENCIA_MEDICA">LICENCIA MÉDICA</option>
+                                            <option value="VACACIONES">VACACIONES</option>
+                                        </select>
                                     </div>
                                 </div>
+                            </div>
+                        )}
 
-                                {/* --- ¡NUEVO! Uploader de Cierre --- */}
+                        {activeTab === 'licencia' && (
+                            <div className="tab-content">
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">📷 Adjuntos de Cierre (Ej: Guía firmada)</h4>
-                                    <FileUploader 
-                                        ordenId={ordenIdActual}
-                                        tipoAdjunto="cierre"
-                                        onUploadSuccess={handleUploadSuccess}
-                                        disabled={!ordenIdActual}
-                                    />
-                                    {!editingOrden && !tempOrdenId && (
-                                        <div className="upload-info-box">
-                                            ℹ️ Primero debes guardar la orden para poder adjuntar archivos de cierre.
+                                    <h4 className="section-title-pro">Información de Licencia de Conducir</h4>
+                                    <div className="form-grid-2">
+                                        <div className="form-group-pro">
+                                            <label>Número de Licencia</label>
+                                            <input 
+                                                name="licencia_numero" 
+                                                value={form.licencia_numero} 
+                                                onChange={handleChange} 
+                                                placeholder="Ej: 123456789" 
+                                            />
                                         </div>
-                                    )}
-                                    <AdjuntosList 
-                                        adjuntos={adjuntosCierre}
-                                        loading={loadingAdjuntos}
-                                        onDelete={handleDeleteAdjunto}
-                                    />
+                                        <div className="form-group-pro">
+                                            <label>Tipo de Licencia</label>
+                                            <select name="licencia_tipo" value={form.licencia_tipo} onChange={handleChange}>
+                                                <option value="">Seleccionar tipo</option>
+                                                <option value="A1">CLASE A1 - Motocicletas pequeñas</option>
+                                                <option value="A2">CLASE A2 - Motocicletas</option>
+                                                <option value="A3">CLASE A3 - Motos de alta cilindrada</option>
+                                                <option value="A4">CLASE A4 - Motos con sidecar</option>
+                                                <option value="A5">CLASE A5 - Buses articulados</option>
+                                                <option value="B">CLASE B - Vehículos livianos</option>
+                                                <option value="C">CLASE C - Vehículos de carga</option>
+                                                <option value="D">CLASE D - Transporte de pasajeros</option>
+                                                <option value="E">CLASE E - Tractocamiones</option>
+                                                <option value="F">CLASE F - Maquinaria especial</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="form-group-pro">
+                                        <label>Fecha de Vencimiento</label>
+                                        <input 
+                                            name="licencia_vencimiento" 
+                                            type="date" 
+                                            value={form.licencia_vencimiento} 
+                                            onChange={handleChange} 
+                                        />
+                                        {form.licencia_vencimiento && (
+                                            <small className="input-hint-pro">
+                                                {(() => {
+                                                    const vencimiento = new Date(form.licencia_vencimiento);
+                                                    const hoy = new Date();
+                                                    const diasRestantes = Math.ceil((vencimiento - hoy) / (1000 * 60 * 60 * 24));
+                                                    if (diasRestantes < 0) return `⚠️ Licencia vencida hace ${Math.abs(diasRestantes)} días`;
+                                                    if (diasRestantes <= 30) return `⚠️ Vence en ${diasRestantes} días`;
+                                                    return `✓ Válida por ${diasRestantes} días`;
+                                                })()}
+                                            </small>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'contacto' && (
+                            <div className="tab-content">
+                                <div className="form-section-pro">
+                                    <h4 className="section-title-pro">Información de Contacto</h4>
+                                    <div className="form-grid-2">
+                                        <div className="form-group-pro">
+                                            <label>Teléfono</label>
+                                            <input 
+                                                name="telefono" 
+                                                type="tel" 
+                                                value={form.telefono} 
+                                                onChange={handleChange} 
+                                                placeholder="Ej: +56912345678" 
+                                            />
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Email</label>
+                                            <input 
+                                                name="email" 
+                                                type="email" 
+                                                value={form.email} 
+                                                onChange={handleChange} 
+                                                placeholder="Ej: conductor@ejemplo.com" 
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-group-pro">
+                                        <label>Dirección</label>
+                                        <input 
+                                            name="direccion" 
+                                            value={form.direccion} 
+                                            onChange={handleChange} 
+                                            placeholder="Ej: CALLE PRINCIPAL 123, COMUNA" 
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'adicional' && (
+                            <div className="tab-content">
+                                <div className="form-section-pro">
+                                    <h4 className="section-title-pro">Notas y Observaciones</h4>
+                                    <div className="form-group-pro">
+                                        <label>Observaciones</label>
+                                        <textarea 
+                                            name="observaciones" 
+                                            value={form.observaciones} 
+                                            onChange={handleChange} 
+                                            rows="8" 
+                                            placeholder="Agrega notas, restricciones, certificaciones especiales o cualquier información relevante sobre el conductor..."
+                                            className="textarea-pro"
+                                        ></textarea>
+                                        <small className="input-hint-pro">
+                                            {form.observaciones?.length || 0} caracteres
+                                        </small>
+                                    </div>
                                 </div>
                             </div>
                         )}
                     </div>
                     
-                    {/* --- Footer Global del Modal (Sin cambios) --- */}
                     <div className="modal-footer-pro">
-                        <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>Cancelar</button>
-                        <button type="submit" disabled={isFormInvalid || submitting || loadingLists} className="btn btn-primary-pro">
-                            {submitting ? '⏳ Guardando...' : (editingOrden ? '💾 Actualizar' : '➕ Crear Orden')}
+                        <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>
+                            Cancelar
+                        </button>
+                        <button type="submit" disabled={isFormInvalid || submitting} className="btn btn-primary-pro">
+                            {submitting ? '⏳ Guardando...' : (editingConductor ? '💾 Actualizar' : '➕ Crear Conductor')}
                         </button>
                     </div>
                 </form>
@@ -499,187 +390,311 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
     );
 };
 
-// --- ConfirmationModal (Sin cambios) ---
+// --- MODAL DE CONFIRMACIÓN ---
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitting }) => {
-    // ... (código sin cambios)
+    if (!isOpen) return null;
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-content modal-small" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header-pro">
+                    <h3>⚠️ {title}</h3>
+                </div>
+                <div className="modal-body-pro">
+                    <p className="confirmation-message">{message}</p>
+                </div>
+                <div className="modal-footer-pro">
+                    <button onClick={onClose} disabled={submitting} className="btn btn-secondary-pro">
+                        Cancelar
+                    </button>
+                    <button onClick={onConfirm} disabled={submitting} className="btn btn-danger-pro">
+                        {submitting ? 'Procesando...' : 'Confirmar'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
-
-// --- Componente Principal Ordenes ---
-function Ordenes({ user, token }) {
-    const [ordenes, setOrdenes] = useState([]);
+// --- COMPONENTE PRINCIPAL ---
+function Conductores({ user, token }) {
+    const [conductores, setConductores] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [meta, setMeta] = useState({ page: 1, per_page: 20, total: 0, pages: 1 });
     const [page, setPage] = useState(1);
     const [searchQuery, setSearchQuery] = useState('');
-    const [filtroEstado, setFiltroEstado] = useState('');
     const [showModal, setShowModal] = useState(false);
-    const [editingOrden, setEditingOrden] = useState(null);
-    const [cancelingOrden, setCancelingOrden] = useState(null);
-    const [submitting, setSubmitting] = useState(false);
+    const [editingConductor, setEditingConductor] = useState(null);
+    const [deletingConductor, setDeletingConductor] = useState(null);
     const [formError, setFormError] = useState(null);
-    const [modalDefaultTab, setModalDefaultTab] = useState('detalle');
+    const [submitting, setSubmitting] = useState(false);
 
-    const canWrite = useMemo(() => ['administrador', 'dispatcher'].includes((user?.cargo || '').toLowerCase()), [user?.cargo]);
-    const isAdmin = useMemo(() => (user?.cargo || '').toLowerCase() === 'administrador', [user?.cargo]);
     const debouncedSearch = useDebounce(searchQuery, 500);
 
-    // fetchOrdenes (Sin cambios)
-    const fetchOrdenes = useCallback(async () => {
-        // ... (código sin cambios)
-    }, [page, debouncedSearch, filtroEstado, meta.per_page]);
+    const canWrite = useMemo(() => 
+        ['administrador', 'dispatcher'].includes((user?.cargo || '').toLowerCase()), 
+        [user?.cargo]
+    );
+    
+    const isAdmin = useMemo(() => 
+        (user?.cargo || '').toLowerCase() === 'administrador', 
+        [user?.cargo]
+    );
 
-    // useEffect (Sin cambios)
+    const fetchConductores = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams({ page, per_page: meta.per_page });
+        if (debouncedSearch) params.append('search', debouncedSearch);
+
+        try {
+            const res = await apiFetch(`/api/conductores/?${params.toString()}`);
+            if (res.status === 200) {
+                setConductores(res.data.data || []);
+                setMeta(res.data.meta || { page: 1, per_page: 20, total: 0, pages: 1 });
+            } else {
+                setError(res.data?.message || 'Error cargando conductores');
+            }
+        } catch (err) {
+            setError('Error de conexión');
+        } finally {
+            setLoading(false);
+        }
+    }, [page, debouncedSearch, meta.per_page]);
+
     useEffect(() => {
-        if (token) { fetchOrdenes(); }
-    }, [token, fetchOrdenes]);
+        if (token) {
+            fetchConductores();
+        }
+    }, [token, fetchConductores]);
 
-    // handleFormSubmit (¡MODIFICADO PARA MANEJAR BORRADOR!)
-    const handleFormSubmit = async (formData, ordenId) => {
+    const handleFormSubmit = async (formData, conductorId) => {
         setSubmitting(true);
         setFormError(null);
-        
-        const url = ordenId ? `/api/ordenes/${ordenId}` : '/api/ordenes/';
-        const method = ordenId ? 'PUT' : 'POST';
+        const url = conductorId ? `/api/conductores/${conductorId}` : '/api/conductores/';
+        const method = conductorId ? 'PUT' : 'POST';
 
         try {
             const res = await apiFetch(url, { method, body: formData });
-            
             if (res && (res.status === 200 || res.status === 201)) {
-                
-                // Si es una actualización (PUT), cerramos el modal y refrescamos
-                if (method === 'PUT') {
-                    setShowModal(false);
-                    fetchOrdenes();
-                }
-                
-                // Retornamos los datos (para la lógica de borrador)
-                return res.data?.data || res.data;
-            } else { 
-                setFormError(res.data?.message || 'Error al guardar la orden');
-                return null; // Devuelve null si falla
+                setShowModal(false);
+                fetchConductores();
+            } else {
+                setFormError(res.data?.message || 'Error al guardar');
             }
-        } catch (err) { 
-            console.error('❌ Error:', err);
-            setFormError('Error de conexión'); 
-            return null; // Devuelve null si falla
-        } finally { 
-            setSubmitting(false); 
+        } catch (err) {
+            setFormError('Error de conexión');
+        } finally {
+            setSubmitting(false);
         }
     };
 
-    // handleConfirmCancel (Sin cambios)
-    const handleConfirmCancel = async () => {
-        // ... (código sin cambios)
+    const handleConfirmDelete = async () => {
+        if (!deletingConductor) return;
+        setSubmitting(true);
+        try {
+            const res = await apiFetch(`/api/conductores/${deletingConductor.id}`, { method: 'DELETE' });
+            if (res && res.status === 200) {
+                setDeletingConductor(null);
+                fetchConductores();
+            } else {
+                setError(res.data?.message || 'No se pudo eliminar');
+            }
+        } catch (err) {
+            setError('Error de conexión');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    // getEstadoBadge (Sin cambios)
-    const getEstadoBadge = (estado) => `badge-estado badge-estado-${estado || 'default'}`;
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= meta.pages) {
+            setPage(newPage);
+        }
+    };
+
+    const getEstadoBadgeClass = (estado) => {
+        const estadoLower = (estado || '').toLowerCase();
+        if (estadoLower === 'activo') return 'badge-estado-activo';
+        if (estadoLower === 'inactivo') return 'badge-estado-inactivo';
+        if (estadoLower === 'licencia_medica' || estadoLower === 'licencia medica') return 'badge-estado-licencia';
+        if (estadoLower === 'vacaciones') return 'badge-estado-vacaciones';
+        return 'badge-estado-otro';
+    };
+
+    const getLicenciaStatus = (vencimiento) => {
+        if (!vencimiento) return { text: '-', class: '' };
+        const vencimientoDate = new Date(vencimiento);
+        const hoy = new Date();
+        const diasRestantes = Math.ceil((vencimientoDate - hoy) / (1000 * 60 * 60 * 24));
+        
+        if (diasRestantes < 0) return { text: `Vencida`, class: 'badge-licencia-vencida' };
+        if (diasRestantes <= 30) return { text: `${diasRestantes}d`, class: 'badge-licencia-proxima' };
+        return { text: vencimientoDate.toLocaleDateString('es-CL'), class: 'badge-licencia-vigente' };
+    };
 
     if (!token) {
-        return (<div className="ordenes-container"><div className="loading-state">Cargando...</div></div>);
+        return <div className="loading-state">⏳ Cargando...</div>;
     }
 
-    // --- RENDER (Con las nuevas columnas) ---
     return (
-        <div className="ordenes-container">
-            <div className="ordenes-header">
-                {/* ... (header sin cambios) ... */}
+        <div className="conductores-container">
+            <div className="conductores-header">
+                <div>
+                    <h2>👤 Conductores</h2>
+                    <p className="header-subtitle">Gestión y administración de conductores de la flota</p>
+                </div>
+                {canWrite && (
+                    <button 
+                        onClick={() => { setEditingConductor(null); setFormError(null); setShowModal(true); }}
+                        className="btn btn-primary"
+                    >
+                        ➕ Nuevo Conductor
+                    </button>
+                )}
             </div>
 
-            <div className="filtros-container">
-                {/* ... (filtros sin cambios) ... */}
+            <div className="search-container-pro">
+                <div className="search-wrapper-pro">
+                    <span className="search-icon-pro">🔍</span>
+                    <input
+                        type="text"
+                        className="search-input-pro"
+                        placeholder="Buscar por nombre, apellido, RUT o licencia..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
             </div>
 
-            {error && <div className="alert-error-pro">⚠️ {error}</div>}
+            {error && (
+                <div className="alert-error-pro">
+                    <span>⚠️</span>
+                    <span>{error}</span>
+                </div>
+            )}
 
-            <div className="table-container">
-                {loading && ordenes.length === 0 ? (
-                    <div className="loading-state">Cargando órdenes...</div>
-                ) : (
-                    <table className="ordenes-table">
-                        <thead>
-                            {/* --- CABECERAS ACTUALIZADAS --- */}
-                            <tr>
-                                <th>ID</th>
-                                <th>Estado</th>
-                                <th>Inicio Prog.</th>
-                                <th>Fin Prog.</th>
-                                <th>Origen</th>
-                                <th>Destino</th>
-                                <th>Vehículo</th>
-                                <th>Conductor</th>
-                                <th>Inicio Real</th>
-                                <th>Fin Real</th>
-                                <th>KM Inicio</th>
-                                <th>KM Fin</th>
-                                {(canWrite || isAdmin) && <th>Acciones</th>}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {ordenes.map(o => {
-                                const isClickable = canWrite && o.estado !== 'completada' && o.estado !== 'cancelada';
-                                const handleRowClick = () => {
-                                    if (!isClickable) return;
-                                    setEditingOrden(o); setFormError(null); 
-                                    setModalDefaultTab('detalle'); setShowModal(true);
-                                };
+            {loading && <div className="loading-state">⏳ Cargando conductores...</div>}
 
-                                return (
-                                    <tr key={o.id} className={isClickable ? 'clickable-row' : ''} onClick={handleRowClick}>
-                                        <td className="font-bold">#{o.id}</td>
-                                        <td><span className={getEstadoBadge(o.estado)}>{o.estado.replace('_', ' ')}</span></td>
-                                        <td>{formatLocalDate(o.fecha_inicio_programada)}</td>
-                                        {/* --- FILAS ACTUALIZADAS --- */}
-                                        <td>{formatLocalDate(o.fecha_fin_programada)}</td>
-                                        <td>{o.origen}</td>
-                                        <td>{o.destino}</td>
-                                        <td>{o.vehiculo ? `${o.vehiculo.placa}` : '-'}</td>
-                                        <td>{o.conductor ? `${o.conductor.nombre} ${o.conductor.apellido}` : '-'}</td>
-                                        <td>{formatLocalDate(o.fecha_inicio_real)}</td>
-                                        <td>{formatLocalDate(o.fecha_fin_real)}</td>
-                                        <td>{o.kilometraje_inicio || '-'}</td>
-                                        <td>{o.kilometraje_fin || '-'}</td>
-                                        {/* --- --- */}
-                                        {(canWrite || isAdmin) && (
+            {!loading && conductores.length === 0 && (
+                <div className="empty-state-pro">
+                    <span className="empty-icon-pro">👤</span>
+                    <p>No se encontraron conductores</p>
+                    {debouncedSearch && <small>Intenta con otros términos de búsqueda</small>}
+                </div>
+            )}
+
+            {!loading && conductores.length > 0 && (
+                <>
+                    <div className="table-container">
+                        <table className="conductores-table">
+                            <thead>
+                                <tr>
+                                    <th>Conductor</th>
+                                    <th>RUT</th>
+                                    <th>Licencia</th>
+                                    <th>Vencimiento</th>
+                                    <th>Contacto</th>
+                                    <th>Estado</th>
+                                    {canWrite && <th>Acciones</th>}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {conductores.map(conductor => {
+                                    const licenciaStatus = getLicenciaStatus(conductor.licencia_vencimiento);
+                                    return (
+                                        <tr key={conductor.id}>
                                             <td>
-                                                <div className="action-buttons-pro" onClick={(e) => e.stopPropagation()}>
-                                                    {/* ... (Botones ✏️ 🏁 🗑️ sin cambios) ... */}
+                                                <div className="conductor-name-cell">
+                                                    <strong>{conductor.nombre} {conductor.apellido}</strong>
+                                                    {conductor.email && <small>{conductor.email}</small>}
                                                 </div>
                                             </td>
-                                        )}
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                )}
-                {/* ... (empty state sin cambios) ... */}
-            </div>
+                                            <td>
+                                                <span className="badge-rut">{conductor.rut}</span>
+                                            </td>
+                                            <td>
+                                                {conductor.licencia_numero ? (
+                                                    <div className="licencia-info">
+                                                        <span className="licencia-numero">{conductor.licencia_numero}</span>
+                                                        {conductor.licencia_tipo && (
+                                                            <span className="badge-licencia-tipo">{conductor.licencia_tipo}</span>
+                                                        )}
+                                                    </div>
+                                                ) : '-'}
+                                            </td>
+                                            <td>
+                                                {licenciaStatus.text !== '-' ? (
+                                                    <span className={`badge-licencia ${licenciaStatus.class}`}>
+                                                        {licenciaStatus.text}
+                                                    </span>
+                                                ) : '-'}
+                                            </td>
+                                            <td>
+                                                {conductor.telefono ? (
+                                                    <a href={`tel:${conductor.telefono}`} className="contact-link">
+                                                        📞 {conductor.telefono}
+                                                    </a>
+                                                ) : '-'}
+                                            </td>
+                                            <td>
+                                                <span className={`badge-estado ${getEstadoBadgeClass(conductor.estado)}`}>
+                                                    {conductor.estado || 'ACTIVO'}
+                                                </span>
+                                            </td>
+                                            {canWrite && (
+                                                <td>
+                                                    <div className="action-buttons-pro">
+                                                        <button 
+                                                            onClick={() => { setEditingConductor(conductor); setFormError(null); setShowModal(true); }}
+                                                            className="btn-icon-pro btn-edit-pro"
+                                                            title="Editar conductor"
+                                                        >
+                                                            ✏️
+                                                        </button>
+                                                        {isAdmin && (
+                                                            <button 
+                                                                onClick={() => setDeletingConductor(conductor)}
+                                                                className="btn-icon-pro btn-delete-pro"
+                                                                title="Eliminar conductor"
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
 
-            <Pagination meta={meta} onPageChange={(newPage) => setPage(newPage)} />
+                    <Pagination meta={meta} onPageChange={handlePageChange} />
+                </>
+            )}
 
-            <OrdenFormModal 
-                isOpen={showModal} 
-                onClose={() => setShowModal(false)} 
-                onSave={handleFormSubmit} 
-                editingOrden={editingOrden} 
-                apiError={formError} 
-                submitting={submitting} 
-                defaultTab={modalDefaultTab}
+            <ConductorFormModal
+                isOpen={showModal}
+                onClose={() => setShowModal(false)}
+                onSave={handleFormSubmit}
+                editingConductor={editingConductor}
+                apiError={formError}
+                submitting={submitting}
             />
 
-            <ConfirmationModal 
-                isOpen={!!cancelingOrden} 
-                onClose={() => setCancelingOrden(null)} 
-                onConfirm={handleConfirmCancel} 
-                title="Confirmar Cancelación"
-                message={`¿Estás seguro de cancelar la orden #${cancelingOrden?.id}? Esta acción cambiará el estado a 'cancelada'.`} 
-                submitting={submitting} 
+            <ConfirmationModal
+                isOpen={!!deletingConductor}
+                onClose={() => setDeletingConductor(null)}
+                onConfirm={handleConfirmDelete}
+                title="Eliminar Conductor"
+                message={`¿Estás seguro de eliminar al conductor ${deletingConductor?.nombre} ${deletingConductor?.apellido}? Esta acción no se puede deshacer.`}
+                submitting={submitting}
             />
         </div>
     );
 }
 
-export default Ordenes;
+export default Conductores;

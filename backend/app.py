@@ -66,7 +66,16 @@ def create_app():
     except Exception as e:
         app.logger.error(f'❌ Error al registrar mantenimiento: {e}')
         pass
-    
+
+    # Blueprint Reportes
+    try:
+        from .modules.reportes import reportes_bp
+        app.register_blueprint(reportes_bp, url_prefix='/api/reportes')
+        app.logger.info('✅ Blueprint reportes registrado en /api/reportes')
+    except Exception as e:
+        app.logger.error(f'❌ Error al registrar reportes: {e}')
+        pass
+
     return app
 
 app = create_app()

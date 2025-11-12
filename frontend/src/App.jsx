@@ -5,6 +5,7 @@ import Vehiculos from './components/Vehiculos'
 import Conductores from './components/Conductores'
 import Ordenes from './components/Ordenes'
 import Mantenimiento from './components/Mantenimiento'
+import Reportes from './components/Reportes'
 import './App.css'
 import { apiFetch } from './lib/api'
 
@@ -80,7 +81,7 @@ function App(){
         {activeModule === 'conductores' && <Conductores user={user} token={token} />}
         {activeModule === 'viajes' && <Ordenes user={user} token={token} />}
         {activeModule === 'mantenimiento' && <Mantenimiento user={user} token={token} />}
-        {activeModule === 'reportes' && <div><h2>Módulo Reportes</h2><p>Próximamente...</p></div>}
+        {activeModule === 'reportes' && <Reportes user={user} token={token} />}
       </main>
     </div>
   )

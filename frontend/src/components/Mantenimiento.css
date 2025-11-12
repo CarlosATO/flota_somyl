@@ -393,3 +393,133 @@
   font-size: 0.9rem;
   line-height: 1.4;
 }
+
+/* === ADJUNTOS === */
+.adjuntos-container {
+  margin-top: 1.75rem;
+}
+
+.uploader-box {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 1.75rem;
+  text-align: center;
+  background-color: var(--color-bg-light);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.uploader-box:hover {
+  border-color: var(--color-primary);
+  background-color: #f8f9ff;
+}
+
+.uploader-box input[type="file"] {
+  display: none;
+}
+
+.uploader-label {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-primary);
+  font-size: 1rem;
+}
+
+.uploader-label:hover {
+  text-decoration: underline;
+}
+
+.uploader-label.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.uploader-hint {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  margin-top: 0.625rem;
+}
+
+.upload-progress {
+  margin-top: 1.125rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+.adjuntos-list {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.adjunto-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1.125rem;
+  background-color: var(--color-bg-light);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--color-border);
+  animation: fadeIn 0.3s ease;
+  transition: all 0.2s;
+}
+
+.adjunto-item:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--color-primary);
+}
+
+.adjunto-info {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  font-size: 0.925rem;
+  overflow: hidden;
+  flex: 1;
+}
+
+.adjunto-icon {
+  font-size: 1.375rem;
+  flex-shrink: 0;
+}
+
+.adjunto-name {
+  color: var(--color-text-dark);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.adjunto-name a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.adjunto-name a:hover {
+  text-decoration: underline;
+}
+
+.adjunto-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-danger);
+  cursor: pointer;
+  font-size: 1.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.adjunto-delete-btn:hover {
+  background-color: #ffe7e7;
+  transform: scale(1.15);
+}
+
+.loading-adjuntos {
+  font-style: italic;
+  color: var(--color-text-light);
+  padding: 1.125rem 0;
+  text-align: center;
+}
