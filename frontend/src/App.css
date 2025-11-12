@@ -7,6 +7,8 @@
   flex:1;
   padding: 24px;
   background:#f5f7fa;
+  overflow-x: auto;   /* Permite el scroll horizontal SÓLO aquí */
+  min-width: 0;       /* Truco de Flexbox para que funcione el overflow */
 }
 
 /* Auth (login) centered when no user */

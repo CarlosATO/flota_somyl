@@ -20,7 +20,6 @@
 
 .vehiculos-container {
   padding: 1.5rem;
-  margin: 1.5rem;
   background-color: #ffffff;
   border-radius: var(--border-radius-lg);
   box-shadow: var(--shadow-md);

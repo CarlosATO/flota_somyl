@@ -46,7 +46,69 @@ const formatDateTimeForInput = (dateString) => {
     } catch (e) { return ''; }
 };
 
-const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submitting, defaultTab = 'detalle', onRefresh }) => {
+// *** COMPONENTE DE ALERTAS ***
+const AlertasLicencias = () => {
+    const [alertas, setAlertas] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [visible, setVisible] = useState(false);
+
+    const fetchAlertas = async () => {
+        setLoading(true);
+        const res = await apiFetch('/api/ordenes/alertas/licencias');
+        if (res.status === 200) {
+            setAlertas(res.data.data || []);
+        }
+        setLoading(false);
+    };
+
+    useEffect(() => {
+        fetchAlertas();
+    }, []);
+
+    if (loading || alertas.length === 0) return null;
+
+    return (
+        <div className="alertas-widget">
+            <button 
+                className="alertas-toggle" 
+                onClick={() => setVisible(!visible)}
+                title={`${alertas.length} licencia(s) por vencer`}
+            >
+                🚨 {alertas.length}
+            </button>
+            
+            {visible && (
+                <div className="alertas-panel">
+                    <div className="alertas-header">
+                        <h4>⚠️ Licencias por Vencer (30 días)</h4>
+                        <button onClick={() => setVisible(false)}>×</button>
+                    </div>
+                    <div className="alertas-list">
+                        {alertas.map(a => (
+                            <div key={a.id} className="alerta-item">
+                                <div className="alerta-conductor">
+                                    <strong>{a.nombre} {a.apellido}</strong>
+                                    <span className="alerta-rut">{a.rut}</span>
+                                </div>
+                                <div className="alerta-licencia">
+                                    <span className="badge-licencia">{a.licencia_tipo}</span>
+                                    <span className={`dias-restantes ${a.dias_restantes <= 7 ? 'critico' : ''}`}>
+                                        {a.dias_restantes} días
+                                    </span>
+                                </div>
+                                <div className="alerta-fecha">
+                                    Vence: {new Date(a.licencia_vencimiento).toLocaleDateString('es-CL')}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submitting, defaultTab = 'detalle' }) => {
     
     const [activeTab, setActiveTab] = useState(defaultTab);
     const [form, setForm] = useState({});
@@ -59,8 +121,6 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
     const [loadingAdjuntos, setLoadingAdjuntos] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState(null);
-    
-    // *** NUEVO: ID temporal para orden recién creada ***
     const [tempOrdenId, setTempOrdenId] = useState(null);
     
     const requiredFields = ['fecha_inicio_programada', 'origen', 'destino', 'descripcion'];
@@ -84,7 +144,7 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
         if (isOpen) {
             setActiveTab(defaultTab);
             setUploadError(null);
-            setTempOrdenId(null); // Resetear ID temporal
+            setTempOrdenId(null);
         }
 
         if (editingOrden) {
@@ -96,7 +156,6 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                 origen: editingOrden.origen || '',
                 destino: editingOrden.destino || '',
                 descripcion: editingOrden.descripcion || '',
-                estado: editingOrden.estado || 'pendiente',
                 vehiculo_id: editingOrden.vehiculo_id || '',
                 conductor_id: editingOrden.conductor_id || '',
                 kilometraje_inicio: editingOrden.kilometraje_inicio || '',
@@ -118,7 +177,7 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
             setForm({
                 fecha_inicio_programada: formatDateTimeForInput(new Date().toISOString()),
                 fecha_fin_programada: '', fecha_inicio_real: '', fecha_fin_real: '',
-                origen: '', destino: '', descripcion: '', estado: 'pendiente',
+                origen: '', destino: '', descripcion: '',
                 vehiculo_id: '', conductor_id: '', kilometraje_inicio: '',
                 kilometraje_fin: '', observaciones: '',
             });
@@ -135,8 +194,8 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
         setForm({ ...form, [name]: finalValue });
     };
 
-    // *** MODIFICADO: Validar antes de guardar ***
     const handleSubmit = async (e) => {
+        // *** MODIFICADO: Validar antes de guardar ***
         e.preventDefault();
         
         // Validación: No permitir "completada" sin fecha_fin_real
@@ -153,126 +212,117 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
             if (payload.fecha_fin_real) payload.fecha_fin_real = new Date(payload.fecha_fin_real).toISOString();
         } catch (e) { console.error("Error formateando fechas", e); }
         
-        // *** NUEVO: Guardar y capturar ID ***
-        const result = await onSave(payload, editingOrden ? editingOrden.id : null);
+        // --- ¡AQUÍ ESTÁ LA MAGIA DEL ARREGLO! ---
+        // Si estamos editando, usa el ID de edición.
+        // Si no, usa el ID del borrador temporal (si existe).
+        const ordenIdParaGuardar = editingOrden ? editingOrden.id : tempOrdenId;
         
-        // Si es creación exitosa, guardar el ID temporal
-        if (!editingOrden && result && result.id) {
-            setTempOrdenId(result.id);
-        }
+        // Simplemente llamamos a guardar.
+        // El componente "Padre" (onSave) se encargará de cerrar el modal.
+        await onSave(payload, ordenIdParaGuardar);
     };
 
     const handleFileChange = async (e) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    
-    const file = e.target.files[0];
-    
-    if (file.size > 10 * 1024 * 1024) {
-        setUploadError("El archivo es muy grande (máx 10MB).");
-        return;
-    }
-
-    setIsUploading(true);
-    setUploadError(null);
-    
-    try {
-        let ordenId = editingOrden ? editingOrden.id : tempOrdenId;
+        if (!e.target.files || e.target.files.length === 0) return;
         
-        // *** SI NO HAY ORDEN AÚN, CREARLA COMO BORRADOR ***
-        if (!ordenId) {
-            console.log('📝 No hay orden, creando borrador...');
-            
-            // Crear orden mínima (solo campos requeridos con valores por defecto)
-            const borradorPayload = {
-                fecha_inicio_programada: form.fecha_inicio_programada || new Date().toISOString(),
-                origen: form.origen || 'Por definir',
-                destino: form.destino || 'Por definir',
-                descripcion: form.descripcion || 'Borrador - completar datos',
-                estado: 'pendiente'
-            };
-            
-            const resBorrador = await apiFetch('/api/ordenes/', {
-                method: 'POST',
-                body: borradorPayload
-            });
-            
-            if (resBorrador && resBorrador.status === 201) {
-                ordenId = resBorrador.data?.data?.id || resBorrador.data?.id;
-                setTempOrdenId(ordenId);
-                console.log('✅ Borrador creado con ID:', ordenId);
-            } else {
-                throw new Error('No se pudo crear el borrador de la orden');
-            }
-        }
+        const file = e.target.files[0];
         
-        // *** SUBIR ARCHIVO ***
-        const fileExt = file.name.split('.').pop();
-        const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
-            .toLowerCase()
-            .replace(/[^a-z0-9]/g, '_')
-            .replace(/__+/g, '_');
-
-        const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
-        const filePath = `${ordenId}/${safeFileName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from('adjuntos_ordenes')
-            .upload(filePath, file);
-
-        if (uploadError) {
-            if (uploadError.message.includes('policy')) {
-                throw new Error('Error de permisos. Revisa las Políticas de Storage en Supabase.');
-            }
-            throw new Error(uploadError.message);
-        }
-
-        const res = await apiFetch(`/api/ordenes/${ordenId}/adjuntos`, {
-            method: 'POST',
-            body: {
-                storage_path: filePath,
-                nombre_archivo: file.name,
-                mime_type: file.type
-            }
-        });
-
-        if (res.status === 201) {
-            setAdjuntos([res.data, ...adjuntos]);
-        } else {
-            throw new Error(res.data?.message || 'Error guardando adjunto');
-        }
-    } catch (err) {
-        console.error(err);
-        setUploadError(err.message);
-    } finally {
-        setIsUploading(false);
-        e.target.value = null; 
-    }
-};
-
-    const handleDeleteAdjunto = async (adjuntoId) => {
-        if (!window.confirm("¿Estás seguro de eliminar este archivo?")) {
+        if (file.size > 10 * 1024 * 1024) {
+            setUploadError("El archivo es muy grande (máx 10MB).");
             return;
         }
+
+        setIsUploading(true);
+        setUploadError(null);
+        
+        try {
+            let ordenId = editingOrden ? editingOrden.id : tempOrdenId;
+            
+            if (!ordenId) {
+                console.log('📝 Creando borrador para adjuntos...');
+                
+                const borradorPayload = {
+                    fecha_inicio_programada: form.fecha_inicio_programada || new Date().toISOString(),
+                    origen: form.origen || 'Por definir',
+                    destino: form.destino || 'Por definir',
+                    descripcion: form.descripcion || 'Borrador - completar datos'
+                };
+                
+                const resBorrador = await apiFetch('/api/ordenes/', {
+                    method: 'POST',
+                    body: borradorPayload
+                });
+                
+                if (resBorrador && resBorrador.status === 201) {
+                    ordenId = resBorrador.data?.data?.id || resBorrador.data?.id;
+                    setTempOrdenId(ordenId);
+                    console.log('✅ Borrador creado:', ordenId);
+                } else {
+                    throw new Error('No se pudo crear borrador');
+                }
+            }
+            
+            const fileExt = file.name.split('.').pop();
+            const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, '_')
+                .replace(/__+/g, '_');
+
+            const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
+            const filePath = `${ordenId}/${safeFileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('adjuntos_ordenes')
+                .upload(filePath, file);
+
+            if (uploadError) {
+                if (uploadError.message.includes('policy')) {
+                    throw new Error('Error de permisos en Storage');
+                }
+                throw new Error(uploadError.message);
+            }
+
+            const res = await apiFetch(`/api/ordenes/${ordenId}/adjuntos`, {
+                method: 'POST',
+                body: {
+                    storage_path: filePath,
+                    nombre_archivo: file.name,
+                    mime_type: file.type
+                }
+            });
+
+            if (res.status === 201) {
+                setAdjuntos([res.data, ...adjuntos]);
+            } else {
+                throw new Error(res.data?.message || 'Error guardando adjunto');
+            }
+        } catch (err) {
+            console.error(err);
+            setUploadError(err.message);
+        } finally {
+            setIsUploading(false);
+            e.target.value = null; 
+        }
+    };
+
+    const handleDeleteAdjunto = async (adjuntoId) => {
+        if (!window.confirm("¿Estás seguro de eliminar este archivo?")) return;
         
         try {
             const res = await apiFetch(`/api/adjuntos/${adjuntoId}`, { method: 'DELETE' });
-            
             if (res.status === 200) {
                 setAdjuntos(adjuntos.filter(a => a.id !== adjuntoId));
             } else {
                 throw new Error(res.data?.message || 'Error al borrar');
             }
         } catch (err) {
-            console.error(err);
             setUploadError(err.message);
         }
     };
 
     const getPublicUrl = (storagePath) => {
         try {
-            const { data } = supabase.storage
-                .from('adjuntos_ordenes')
-                .getPublicUrl(storagePath);
+            const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(storagePath);
             return data.publicUrl;
         } catch (e) {
             return '#';
@@ -280,20 +330,18 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
     };
 
     const isFormInvalid = requiredFields.some(field => !form[field]);
-    
-    // *** CAMBIO: Siempre puede subir (se creará borrador automático) ***
     const canUploadFiles = true;
 
     if (!isOpen) return null;
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content modal-xlarge" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header-pro">
                     <div>
                         <h3>{editingOrden ? 'Editar Orden de Servicio' : 'Crear Nueva Orden'}</h3>
                         <p className="modal-subtitle">
-                            {editingOrden ? `Modificando Orden #${editingOrden.id}` : (tempOrdenId ? `Orden #${tempOrdenId} creada - Agrega adjuntos` : 'Completa los detalles del servicio')}
+                            {editingOrden ? `Modificando Orden #${editingOrden.id}` : (tempOrdenId ? `Orden #${tempOrdenId} creada - Completa los datos` : 'Completa los detalles del servicio')}
                         </p>
                     </div>
                     <button onClick={onClose} className="modal-close-pro" type="button">×</button>
@@ -314,36 +362,81 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                     )}
 
                     <div className="modal-tabs">
-                        <button type="button" className={`tab-button ${activeTab === 'detalle' ? 'active' : ''}`} onClick={() => setActiveTab('detalle')}>📍 Detalles del Viaje</button>
-                        <button type="button" className={`tab-button ${activeTab === 'asignacion' ? 'active' : ''}`} onClick={() => setActiveTab('asignacion')}>👤 Asignación</button>
-                        <button type="button" className={`tab-button ${activeTab === 'registro' ? 'active' : ''}`} onClick={() => setActiveTab('registro')}>📈 Registro (KM y Reales)</button>
+                        <button type="button" className={`tab-button ${activeTab === 'detalle' ? 'active' : ''}`} onClick={() => setActiveTab('detalle')}>
+                            📍 Datos del Servicio y Asignación
+                        </button>
+                        <button type="button" className={`tab-button ${activeTab === 'registro' ? 'active' : ''}`} onClick={() => setActiveTab('registro')}>
+                            🏁 Cierre (KM y Fechas Reales)
+                        </button>
                     </div>
 
                     <div className="modal-body-pro">
                         {loadingLists && <div className="loading-state">Cargando...</div>}
 
+                        {/* TAB 1: DETALLE */}
                         {activeTab === 'detalle' && !loadingLists && (
                             <div className="tab-content">
+                                {/* SECCIÓN: SERVICIO */}
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Servicio</h4>
+                                    <h4 className="section-title-pro">🚦 Información del Servicio</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro"><label>Origen <span className="required-star">*</span></label><input name="origen" value={form.origen} onChange={handleChange} required /></div>
-                                        <div className="form-group-pro"><label>Destino <span className="required-star">*</span></label><input name="destino" value={form.destino} onChange={handleChange} required /></div>
+                                        <div className="form-group-pro">
+                                            <label>Origen <span className="required-star">*</span></label>
+                                            <input name="origen" value={form.origen} onChange={handleChange} placeholder="Ej: Santiago Centro" required />
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Destino <span className="required-star">*</span></label>
+                                            <input name="destino" value={form.destino} onChange={handleChange} placeholder="Ej: Valparaíso" required />
+                                        </div>
                                     </div>
-                                    <div className="form-group-pro" style={{marginTop: '1.25rem'}}><label>Descripción / Motivo <span className="required-star">*</span></label><textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows="3" className="textarea-pro" required></textarea></div>
+                                    <div className="form-group-pro" style={{marginTop: '1rem'}}>
+                                        <label>Descripción / Motivo del Viaje <span className="required-star">*</span></label>
+                                        <textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows="3" className="textarea-pro" placeholder="Describe el tipo de servicio, cliente, observaciones..." required></textarea>
+                                    </div>
                                 </div>
+
+                                {/* SECCIÓN: FECHAS PROGRAMADAS */}
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Fechas Programadas</h4>
+                                    <h4 className="section-title-pro">📅 Fechas Programadas</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro"><label>Inicio Programado <span className="required-star">*</span></label><input name="fecha_inicio_programada" type="datetime-local" value={form.fecha_inicio_programada} onChange={handleChange} required /></div>
-                                        <div className="form-group-pro"><label>Fin Programado</label><input name="fecha_fin_programada" type="datetime-local" value={form.fecha_fin_programada} onChange={handleChange} /></div>
+                                        <div className="form-group-pro">
+                                            <label>Inicio Programado <span className="required-star">*</span></label>
+                                            <input name="fecha_inicio_programada" type="datetime-local" value={form.fecha_inicio_programada} onChange={handleChange} required />
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Fin Programado (Opcional)</label>
+                                            <input name="fecha_fin_programada" type="datetime-local" value={form.fecha_fin_programada} onChange={handleChange} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* SECCIÓN: ASIGNACIÓN (MOVIDA AQUÍ) */}
+                                <div className="form-section-pro">
+                                    <h4 className="section-title-pro">� Asignación de Recursos</h4>
+                                    <div className="info-box-estado-inline">
+                                        <strong>ℹ️ Estado Automático:</strong> PENDIENTE (sin asignar) → ASIGNADA (con vehículo y conductor) → COMPLETADA (con fecha fin y km)
+                                    </div>
+                                    <div className="form-grid-2" style={{marginTop: '1rem'}}>
+                                        <div className="form-group-pro">
+                                            <label>Vehículo (Placa)</label>
+                                            <select name="vehiculo_id" value={form.vehiculo_id} onChange={handleChange}>
+                                                <option value="">(Sin asignar)</option>
+                                                {vehiculosList.map(v => (<option key={v.id} value={v.id}>{v.placa} - {v.marca} {v.modelo}</option>))}
+                                            </select>
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Conductor</label>
+                                            <select name="conductor_id" value={form.conductor_id} onChange={handleChange}>
+                                                <option value="">(Sin asignar)</option>
+                                                {conductoresList.map(c => (<option key={c.id} value={c.id}>{c.nombre} {c.apellido} ({c.rut})</option>))}
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
                                 
-                                {/* *** MODIFICADO: Mostrar siempre, pero deshabilitar si no se puede subir *** */}
+                                {/* SECCIÓN: ADJUNTOS */}
                                 <div className="form-section-pro adjuntos-container">
                                     <h4 className="section-title-pro">📷 Adjuntos (Fotos, Guías)</h4>
-                                    
                                     
                                     <div className="uploader-box">
                                         <input 
@@ -354,10 +447,10 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                                             disabled={isUploading}
                                         />
                                         <label htmlFor="file-upload" className={`uploader-label ${isUploading ? 'disabled' : ''}`}>
-                                            Seleccionar archivo...
+                                            📎 Seleccionar archivo...
                                         </label>
                                         <p className="uploader-hint">JPG, PNG o PDF (Máx 10MB)</p>
-                                        {isUploading && <p className="upload-progress">Subiendo, por favor espera...</p>}
+                                        {isUploading && <p className="upload-progress">⏳ Subiendo archivo...</p>}
                                     </div>
 
                                     <div className="adjuntos-list">
@@ -387,82 +480,74 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                                                 </div>
                                             ))
                                         )}
-                                        {!loadingAdjuntos && adjuntos.length === 0 && canUploadFiles && (
-                                            <p className="loading-adjuntos">No hay archivos adjuntos para esta orden.</p>
+                                        {!loadingAdjuntos && adjuntos.length === 0 && (
+                                            <p className="loading-adjuntos">📂 No hay archivos adjuntos aún.</p>
                                         )}
                                     </div>
                                 </div>
                             </div>
                         )}
                         
-                        {activeTab === 'asignacion' && !loadingLists && (
-                            <div className="tab-content">
-                                <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Asignación de Recursos</h4>
-                                    <div className="form-grid-2">
-                                        <div className="form-group-pro">
-                                            <label>Vehículo (Placa)</label>
-                                            <select name="vehiculo_id" value={form.vehiculo_id} onChange={handleChange}>
-                                                <option value="">(Sin asignar)</option>
-                                                {vehiculosList.map(v => (<option key={v.id} value={v.id}>{v.placa} ({v.marca} {v.modelo})</option>))}
-                                            </select>
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Conductor (Nombre)</label>
-                                            <select name="conductor_id" value={form.conductor_id} onChange={handleChange}>
-                                                <option value="">(Sin asignar)</option>
-                                                {conductoresList.map(c => (<option key={c.id} value={c.id}>{c.nombre} {c.apellido} ({c.rut})</option>))}
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Estado de la Orden</h4>
-                                    <div className="form-grid-2">
-                                        <div className="form-group-pro">
-                                            <label>Estado</label>
-                                            <select name="estado" value={form.estado} onChange={handleChange}>
-                                                <option value="pendiente">PENDIENTE</option><option value="asignada">ASIGNADA</option>
-                                                <option value="en_curso">EN CURSO</option><option value="completada">COMPLETADA</option>
-                                                <option value="cancelada">CANCELADA</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                        {/* TAB 2: ASIGNACIÓN */}
+                        {/* TAB 2: ASIGNACIÓN eliminada */}
 
+                        {/* TAB 3: REGISTRO/CIERRE */}
                         {activeTab === 'registro' && !loadingLists && (
                             <div className="tab-content">
+                                <div className="warning-box-cierre">
+                                    ⚠️ <strong>Importante:</strong> Para marcar la orden como COMPLETADA, debes registrar AMBOS campos: <strong>Fecha Fin Real</strong> y <strong>KM Fin</strong>. Si falta alguno, la orden NO se cerrará automáticamente.
+                                </div>
+
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Fechas Reales (Ejecución)</h4>
+                                    <h4 className="section-title-pro">🕐 Fechas Reales de Ejecución</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro"><label>Inicio Real</label><input name="fecha_inicio_real" type="datetime-local" value={form.fecha_inicio_real} onChange={handleChange} /></div>
-                                        <div className="form-group-pro"><label>Fin Real</label><input name="fecha_fin_real" type="datetime-local" value={form.fecha_fin_real} onChange={handleChange} /></div>
+                                        <div className="form-group-pro">
+                                            <label>Inicio Real</label>
+                                            <input name="fecha_inicio_real" type="datetime-local" value={form.fecha_inicio_real} onChange={handleChange} />
+                                            <small className="input-hint-pro">Fecha/hora en que realmente comenzó el servicio</small>
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Fin Real (Cierre)</label>
+                                            <input name="fecha_fin_real" type="datetime-local" value={form.fecha_fin_real} onChange={handleChange} />
+                                            <small className="input-hint-pro">Fecha/hora en que finalizó el servicio</small>
+                                        </div>
                                     </div>
                                 </div>
+
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Kilometraje (Odómetro)</h4>
+                                    <h4 className="section-title-pro">🛣️ Kilometraje (Odómetro)</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro"><label>KM Inicio</label><input name="kilometraje_inicio" type="number" value={form.kilometraje_inicio} onChange={handleChange} /></div>
-                                        <div className="form-group-pro"><label>KM Fin</label><input name="kilometraje_fin" type="number" value={form.kilometraje_fin} onChange={handleChange} /></div>
+                                        <div className="form-group-pro">
+                                            <label>KM Inicio</label>
+                                            <input name="kilometraje_inicio" type="number" value={form.kilometraje_inicio} onChange={handleChange} placeholder="Ej: 12500" />
+                                            <small className="input-hint-pro">Lectura del odómetro al iniciar</small>
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>KM Fin (Cierre)</label>
+                                            <input name="kilometraje_fin" type="number" value={form.kilometraje_fin} onChange={handleChange} placeholder="Ej: 12750" />
+                                            <small className="input-hint-pro">Lectura del odómetro al finalizar</small>
+                                        </div>
                                     </div>
                                 </div>
+
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Notas Adicionales</h4>
+                                    <h4 className="section-title-pro">📝 Notas Finales</h4>
                                     <div className="form-group-pro">
-                                        <label>Observaciones (Conductor o Dispatcher)</label>
-                                        <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="4" className="textarea-pro"></textarea>
+                                        <label>Observaciones</label>
+                                        <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="4" className="textarea-pro" placeholder="Notas del conductor, incidencias, comentarios adicionales..."></textarea>
                                     </div>
                                 </div>
                             </div>
                         )}
                     </div>
                     
-                    <div className="modal-footer-pro">
-                        <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>Cancelar</button>
+                    {/* *** FOOTER SIEMPRE VISIBLE *** */}
+                    <div className="modal-footer-pro-fixed">
+                        <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>
+                            ← Cancelar
+                        </button>
                         <button type="submit" disabled={isFormInvalid || submitting || loadingLists || isUploading} className="btn btn-primary-pro">
-                            {submitting ? '⏳ Guardando...' : (editingOrden ? '💾 Actualizar' : '➕ Crear Orden')}
+                            {submitting ? '⏳ Guardando...' : (editingOrden ? '💾 Actualizar Orden' : '➕ Crear Orden')}
                         </button>
                     </div>
                 </form>
@@ -529,43 +614,38 @@ function Ordenes({ user, token }) {
         if (token) { fetchOrdenes(); }
     }, [token, fetchOrdenes]);
 
-    // *** MODIFICADO: Retornar el resultado para capturar el ID ***
     const handleFormSubmit = async (formData, ordenId) => {
-    setSubmitting(true);
-    setFormError(null);
-    
-    console.log('🚀 handleFormSubmit llamado con:', { formData, ordenId }); // ← AGREGAR ESTA LÍNEA
-    
-    const url = ordenId ? `/api/ordenes/${ordenId}` : '/api/ordenes/';
-    const method = ordenId ? 'PUT' : 'POST';
-    try {
-        const res = await apiFetch(url, { method, body: formData });
+        // *** MODIFICADO: Cierra el modal y maneja PUT/POST correctamente ***
+        setSubmitting(true);
+        setFormError(null);
         
-        console.log('📦 Respuesta completa:', res);
-        console.log('📦 res.data:', res.data);
-        console.log('📦 res.data.data:', res.data?.data);
-        
-        if (res && (res.status === 200 || res.status === 201)) {
-            fetchOrdenes();
+        // Esta lógica ahora es 100% correcta gracias al arreglo anterior.
+        // Si ordenId tiene un valor (sea de edición o borrador), hará un PUT.
+        // Si ordenId es null (creación limpia sin foto), hará un POST.
+        const url = ordenId ? `/api/ordenes/${ordenId}` : '/api/ordenes/';
+        const method = ordenId ? 'PUT' : 'POST';
+
+        try {
+            const res = await apiFetch(url, { method, body: formData });
             
-            if (!ordenId) {
-                const resultado = res.data?.data || res.data;
-                console.log('✅ Retornando:', resultado);
-                return resultado;
-            } else {
+            if (res && (res.status === 200 || res.status === 201)) {
+                // --- ¡AQUÍ ESTÁ LA MAGIA DEL ARREGLO! ---
+                // Cerramos el modal y refrescamos la lista SIEMPRE.
                 setShowModal(false);
                 fetchOrdenes();
+                
+                // Retornamos los datos (para la lógica de borrador)
+                return res.data?.data || res.data;
+            } else { 
+                setFormError(res.data?.message || 'Error al guardar la orden'); 
             }
-        } else { 
-            setFormError(res.data?.message || 'Error al guardar la orden'); 
+        } catch (err) { 
+            console.error('❌ Error:', err);
+            setFormError('Error de conexión'); 
+        } finally { 
+            setSubmitting(false); 
         }
-    } catch (err) { 
-        console.error('❌ Error:', err);
-        setFormError('Error de conexión'); 
-    } finally { 
-        setSubmitting(false); 
-    }
-};
+    };
 
     const handleConfirmCancel = async () => {
         if (!cancelingOrden) return;
@@ -580,7 +660,15 @@ function Ordenes({ user, token }) {
         finally { setSubmitting(false); }
     };
 
-    const getEstadoBadge = (estado) => `badge-estado badge-estado-${estado || 'default'}`;
+    const getEstadoBadge = (estado) => {
+        const badges = {
+            'pendiente': 'badge-estado-pendiente',
+            'asignada': 'badge-estado-asignada',
+            'completada': 'badge-estado-completada',
+            'cancelada': 'badge-estado-cancelada'
+        };
+        return `badge-estado ${badges[estado] || 'badge-estado-default'}`;
+    };
 
     if (!token) {
         return (<div className="ordenes-container"><div className="loading-state">Cargando...</div></div>);
@@ -588,10 +676,13 @@ function Ordenes({ user, token }) {
 
     return (
         <div className="ordenes-container">
+            {/* WIDGET DE ALERTAS */}
+            <AlertasLicencias />
+
             <div className="ordenes-header">
                 <div>
-                    <h2>Gestión de Órdenes</h2>
-                    <p className="header-subtitle">Administra los viajes, despachos y asignaciones de la flota</p>
+                    <h2>Gestión de Órdenes de Servicio</h2>
+                    <p className="header-subtitle">Control total de viajes, despachos y asignaciones de la flota</p>
                 </div>
                 {canWrite && (
                     <button onClick={() => { 
@@ -606,13 +697,14 @@ function Ordenes({ user, token }) {
             <div className="filtros-container">
                 <div className="search-wrapper-pro">
                     <span className="search-icon-pro">🔍</span>
-                    <input type="search" placeholder="Buscar por origen, destino..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input-pro" />
+                    <input type="search" placeholder="Buscar por origen, destino o descripción..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input-pro" />
                 </div>
                 <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="filtro-estado-select">
-                    <option value="">Todos los Estados</option>
-                    <option value="pendiente">PENDIENTE</option><option value="asignada">ASIGNADA</option>
-                    <option value="en_curso">EN CURSO</option><option value="completada">COMPLETADA</option>
-                    <option value="cancelada">CANCELADA</option>
+                    <option value="">📊 Todos los Estados</option>
+                    <option value="pendiente">🟡 PENDIENTE</option>
+                    <option value="asignada">🟢 ASIGNADA</option>
+                    <option value="completada">✅ COMPLETADA</option>
+                    <option value="cancelada">❌ CANCELADA</option>
                 </select>
             </div>
 
@@ -625,50 +717,86 @@ function Ordenes({ user, token }) {
                     <table className="ordenes-table">
                         <thead>
                             <tr>
-                                <th>ID</th><th>Estado</th><th>Inicio Programado</th><th>Origen</th>
-                                <th>Destino</th><th>Vehículo</th><th>Conductor</th>
+                                <th>ID</th>
+                                <th>Estado</th>
+                                <th>Inicio Prog.</th>
+                                <th>Fin Prog.</th>
+                                <th>Origen</th>
+                                <th>Destino</th>
+                                <th>Vehículo</th>
+                                <th>Conductor</th>
+                                <th>Inicio Real</th>
+                                <th>Fin Real</th>
+                                <th>KM Inicio</th>
+                                <th>KM Fin</th>
                                 {(canWrite || isAdmin) && <th>Acciones</th>}
                             </tr>
                         </thead>
                         <tbody>
-                            {ordenes.map(o => (
-                                <tr key={o.id}>
-                                    <td className="font-bold">#{o.id}</td>
-                                    <td><span className={getEstadoBadge(o.estado)}>{o.estado.replace('_', ' ')}</span></td>
-                                    <td>{formatLocalDate(o.fecha_inicio_programada)}</td>
-                                    <td>{o.origen}</td>
-                                    <td>{o.destino}</td>
-                                    <td>{o.vehiculo ? `${o.vehiculo.placa}` : '-'}</td>
-                                    <td>{o.conductor ? `${o.conductor.nombre} ${o.conductor.apellido}` : '-'}</td>
-                                    {(canWrite || isAdmin) && (
-                                        <td>
-                                            <div className="action-buttons-pro">
-                                                {canWrite && (
-                                                    <button onClick={() => { 
-                                                        setEditingOrden(o); setFormError(null); 
-                                                        setModalDefaultTab('detalle'); setShowModal(true); 
-                                                    }} className="btn-icon-pro btn-edit-pro" title="Editar">
-                                                        ✏️
-                                                    </button>
-                                                )}
-                                                {canWrite && (o.estado === 'asignada' || o.estado === 'en_curso') && (
-                                                     <button onClick={() => { 
-                                                        setEditingOrden(o); setFormError(null); 
-                                                        setModalDefaultTab('registro'); setShowModal(true); 
-                                                    }} className="btn-icon-pro" title="Finalizar / Registrar KM">
-                                                        🏁
-                                                    </button>
-                                                )}
-                                                {(isAdmin || canWrite) && o.estado !== 'completada' && o.estado !== 'cancelada' && (
-                                                    <button onClick={() => setCancelingOrden(o)} className="btn-icon-pro btn-delete-pro" title="Cancelar Orden">
-                                                        🗑️
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    )}
-                                </tr>
-                            ))}
+                            {ordenes.map(o => {
+                                // Definimos si la fila es "clicable"
+                                const isClickable = canWrite && o.estado !== 'completada' && o.estado !== 'cancelada';
+                                // Handler para el clic en la fila
+                                const handleRowClick = () => {
+                                    if (!isClickable) return;
+                                    setEditingOrden(o); 
+                                    setFormError(null); 
+                                    setModalDefaultTab('detalle'); 
+                                    setShowModal(true);
+                                };
+                                return (
+                                    <tr 
+                                        key={o.id} 
+                                        className={isClickable ? 'clickable-row' : ''}
+                                        onDoubleClick={handleRowClick}
+                                    >
+                                        <td className="font-bold">#{o.id}</td>
+                                        <td><span className={getEstadoBadge(o.estado)}>{o.estado.replace('_', ' ')}</span></td>
+                                        <td>{formatLocalDate(o.fecha_inicio_programada)}</td>
+                                        <td>{formatLocalDate(o.fecha_fin_programada)}</td>
+                                        <td>{o.origen}</td>
+                                        <td>{o.destino}</td>
+                                        <td>{o.vehiculo ? `${o.vehiculo.placa}` : '-'}</td>
+                                        <td>{o.conductor ? `${o.conductor.nombre} ${o.conductor.apellido}` : '-'}</td>
+                                        <td>{formatLocalDate(o.fecha_inicio_real)}</td>
+                                        <td>{formatLocalDate(o.fecha_fin_real)}</td>
+                                        <td>{o.kilometraje_inicio || '-'}</td>
+                                        <td>{o.kilometraje_fin || '-'}</td>
+                                        {(canWrite || isAdmin) && (
+                                            <td>
+                                                <div className="action-buttons-pro">
+                                                    {canWrite && (
+                                                        <button onClick={(e) => { 
+                                                            e.stopPropagation();
+                                                            setEditingOrden(o); setFormError(null); 
+                                                            setModalDefaultTab('detalle'); setShowModal(true); 
+                                                        }} className="btn-icon-pro btn-edit-pro" title="Editar">
+                                                            ✏️
+                                                        </button>
+                                                    )}
+                                                    {canWrite && (o.estado === 'asignada' || o.estado === 'en_curso') && (
+                                                         <button onClick={(e) => { 
+                                                            e.stopPropagation();
+                                                            setEditingOrden(o); setFormError(null); 
+                                                            setModalDefaultTab('registro'); setShowModal(true); 
+                                                        }} className="btn-icon-pro" title="Finalizar / Registrar KM">
+                                                            🏁
+                                                        </button>
+                                                    )}
+                                                    {(isAdmin || canWrite) && o.estado !== 'completada' && o.estado !== 'cancelada' && (
+                                                        <button onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setCancelingOrden(o)
+                                                        }} className="btn-icon-pro btn-delete-pro" title="Cancelar Orden">
+                                                            🗑️
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        )}
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 )}
@@ -690,7 +818,6 @@ function Ordenes({ user, token }) {
                 apiError={formError} 
                 submitting={submitting} 
                 defaultTab={modalDefaultTab}
-                onRefresh={fetchOrdenes}
             />
 
             <ConfirmationModal 
@@ -698,7 +825,7 @@ function Ordenes({ user, token }) {
                 onClose={() => setCancelingOrden(null)} 
                 onConfirm={handleConfirmCancel} 
                 title="Confirmar Cancelación"
-                message={`¿Estás seguro de cancelar la orden #${cancelingOrden?.id}? Esta acción cambiará el estado a 'cancelada'.`} 
+                message={`¿Estás seguro de cancelar la orden #${cancelingOrden?.id}? Esta acción cambiará el estado a 'CANCELADA'.`} 
                 submitting={submitting} 
             />
         </div>

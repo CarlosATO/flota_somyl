@@ -384,7 +384,9 @@ def add_adjunto(orden_id):
         'storage_path': storage_path,
         'nombre_archivo': payload.get('nombre_archivo'),
         'mime_type': payload.get('mime_type'),
-        'observacion': payload.get('observacion')
+        'observacion': payload.get('observacion'),
+        # --- ¡AQUÍ ESTÁ EL CAMBIO! ---
+        'tipo_adjunto': payload.get('tipo_adjunto', 'inicio') # Recibimos la etiqueta
     }
     supabase = current_app.config.get('SUPABASE')
     try:
