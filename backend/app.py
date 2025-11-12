@@ -36,7 +36,6 @@ def create_app():
         app.register_blueprint(ordenes_bp, url_prefix='/api/ordenes')
         app.logger.info('✅ Blueprint ordenes registrado en /api/ordenes')
     except Exception as e:
-        # CAMBIO: De 'warning' a 'error' para consistencia
         app.logger.error(f'❌ Error al registrar ordenes: {e}') 
         pass
 
@@ -74,6 +73,15 @@ def create_app():
         app.logger.info('✅ Blueprint reportes registrado en /api/reportes')
     except Exception as e:
         app.logger.error(f'❌ Error al registrar reportes: {e}')
+        pass
+
+    # Blueprint Usuarios
+    try:
+        from .modules.usuarios import bp as usuarios_bp
+        app.register_blueprint(usuarios_bp, url_prefix='/api/usuarios')
+        app.logger.info('✅ Blueprint usuarios registrado en /api/usuarios')
+    except Exception as e:
+        app.logger.error(f'❌ Error al registrar usuarios: {e}')
         pass
 
     return app

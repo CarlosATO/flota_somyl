@@ -6,6 +6,7 @@ import Conductores from './components/Conductores'
 import Ordenes from './components/Ordenes'
 import Mantenimiento from './components/Mantenimiento'
 import Reportes from './components/Reportes'
+import Usuarios from './components/Usuarios'
 import './App.css'
 import { apiFetch } from './lib/api'
 
@@ -87,6 +88,7 @@ function App(){
         {activeModule === 'viajes' && <Ordenes user={user} token={token} />}
         {activeModule === 'mantenimiento' && <Mantenimiento user={user} token={token} />}
         {activeModule === 'reportes' && <Reportes user={user} token={token} />}
+        {activeModule === 'usuarios' && <Usuarios user={user} token={token} />}
       </main>
     </div>
   )
