@@ -156,3 +156,168 @@ def get_mantenimientos_por_vencer():
     except Exception as e:
         current_app.logger.error(f'Error en mantenimientos_por_vencer: {e}')
         return jsonify({'status': 'error', 'message': 'Error al obtener mantenimientos por vencer'}), 500
+
+
+@reportes_bp.route('/licencias_por_vencer', methods=['GET'])
+@auth_required
+def get_licencias_por_vencer():
+    """
+    Obtiene licencias de conducir próximas a vencer o vencidas.
+    Parámetros opcionales:
+    - dias (int): ventana de días a futuro (default: 30)
+    """
+    try:
+        supabase = current_app.config.get('SUPABASE')
+        if not supabase:
+            return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
+
+        # Parámetros
+        dias = int(request.args.get('dias', 60))  # 60 días por defecto para licencias
+        hoy = datetime.now().date()
+        fecha_limite = (hoy + timedelta(days=dias)).isoformat()
+
+        # Buscar conductores activos con licencia próxima a vencer
+        query = supabase.table('flota_conductores').select(
+            'id, nombre, apellido, rut, licencia_numero, licencia_tipo, licencia_vencimiento, email, telefono, estado'
+        ).eq('estado', 'ACTIVO').is_('deleted_at', None).not_.is_('licencia_vencimiento', None).lte('licencia_vencimiento', fecha_limite).order('licencia_vencimiento', desc=False)
+
+        res = query.execute()
+        conductores = res.data or []
+
+        # Calcular días restantes y nivel de urgencia
+        resultado = []
+        for conductor in conductores:
+            fecha_venc = conductor.get('licencia_vencimiento')
+            if not fecha_venc:
+                continue
+            
+            try:
+                fecha_dt = datetime.fromisoformat(fecha_venc.replace('Z', '+00:00')).date()
+                dias_restantes = (fecha_dt - hoy).days
+                
+                # Determinar urgencia
+                if dias_restantes < 0:
+                    urgencia = 'vencida'
+                elif dias_restantes <= 15:
+                    urgencia = 'critico'
+                elif dias_restantes <= 30:
+                    urgencia = 'urgente'
+                else:
+                    urgencia = 'proximo'
+                
+                resultado.append({
+                    **conductor,
+                    'dias_restantes': dias_restantes,
+                    'urgencia': urgencia,
+                    'nombre_completo': f"{conductor.get('nombre', '')} {conductor.get('apellido', '')}".strip()
+                })
+            except:
+                continue
+
+        # Ordenar por días restantes (más urgentes primero)
+        resultado.sort(key=lambda x: x['dias_restantes'])
+
+        return jsonify({
+            'status': 'success',
+            'data': resultado,
+            'meta': {
+                'total': len(resultado),
+                'vencidas': len([c for c in resultado if c['urgencia'] == 'vencida']),
+                'criticos': len([c for c in resultado if c['urgencia'] == 'critico']),
+                'urgentes': len([c for c in resultado if c['urgencia'] == 'urgente']),
+                'proximos': len([c for c in resultado if c['urgencia'] == 'proximo'])
+            }
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f'Error en licencias_por_vencer: {e}')
+        return jsonify({'status': 'error', 'message': 'Error al obtener licencias por vencer'}), 500
+
+
+@reportes_bp.route('/detalle_vehiculos', methods=['GET'])
+@auth_required
+def get_detalle_vehiculos():
+    """Obtiene listado detallado de vehículos para modal de KPI"""
+    try:
+        supabase = current_app.config.get('SUPABASE')
+        if not supabase:
+            return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
+
+        # Cambio: sin ano, con año si existe en tu tabla
+        query = supabase.table('flota_vehiculos').select(
+            'id, placa, marca, modelo, tipo, kilometraje_actual, estado'
+        ).is_('deleted_at', None).order('placa', desc=False)
+
+        res = query.execute()
+        
+        return jsonify({
+            'status': 'success',
+            'data': res.data or []
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f'Error en detalle_vehiculos: {e}')
+        return jsonify({'status': 'error', 'message': f'Error: {str(e)}'}), 500
+
+
+@reportes_bp.route('/detalle_conductores', methods=['GET'])
+@auth_required
+def get_detalle_conductores():
+    """Obtiene listado detallado de conductores para modal de KPI"""
+    try:
+        supabase = current_app.config.get('SUPABASE')
+        if not supabase:
+            return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
+
+        query = supabase.table('flota_conductores').select(
+            'id, nombre, apellido, rut, licencia_numero, licencia_tipo, licencia_vencimiento, estado, email, telefono'
+        ).is_('deleted_at', None).order('apellido', desc=False)
+
+        res = query.execute()
+        conductores = res.data or []
+        
+        # Agregar nombre completo
+        for c in conductores:
+            c['nombre_completo'] = f"{c.get('nombre', '')} {c.get('apellido', '')}".strip()
+        
+        return jsonify({
+            'status': 'success',
+            'data': conductores
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f'Error en detalle_conductores: {e}')
+        return jsonify({'status': 'error', 'message': 'Error al obtener detalle de conductores'}), 500
+
+
+@reportes_bp.route('/detalle_ordenes', methods=['GET'])
+@auth_required
+def get_detalle_ordenes():
+    """Obtiene listado detallado de órdenes activas para modal de KPI"""
+    try:
+        supabase = current_app.config.get('SUPABASE')
+        if not supabase:
+            return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
+
+        query = supabase.table('flota_ordenes').select(
+            '*, vehiculo:flota_vehiculos(placa, marca, modelo), conductor:flota_conductores(nombre, apellido)'
+        ).in_('estado', ['PENDIENTE', 'ASIGNADA']).order('fecha_inicio_programada', desc=False)
+
+        res = query.execute()
+        ordenes = res.data or []
+        
+        # Formatear datos
+        for o in ordenes:
+            if o.get('conductor'):
+                o['conductor_nombre'] = f"{o['conductor'].get('nombre', '')} {o['conductor'].get('apellido', '')}".strip()
+            if o.get('vehiculo'):
+                o['vehiculo_info'] = f"{o['vehiculo'].get('placa', '')} - {o['vehiculo'].get('marca', '')} {o['vehiculo'].get('modelo', '')}".strip()
+        
+        return jsonify({
+            'status': 'success',
+            'data': ordenes
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f'Error en detalle_ordenes: {e}')
+        return jsonify({'status': 'error', 'message': 'Error al obtener detalle de órdenes'}), 500
