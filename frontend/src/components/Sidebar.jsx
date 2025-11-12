@@ -16,6 +16,7 @@ function Sidebar({ user, onLogout, onNavigate }){
         <a className="menu-item" onClick={()=>onNavigate && onNavigate('vehiculos')}>Vehículos</a>
         <a className="menu-item" onClick={()=>onNavigate && onNavigate('conductores')}>Conductores</a>
         <a className="menu-item" onClick={()=>onNavigate && onNavigate('viajes')}>Viajes</a>
+        <a className="menu-item" onClick={()=>onNavigate && onNavigate('mantenimiento')}>Mantenimiento</a>
         <a className="menu-item" onClick={()=>onNavigate && onNavigate('reportes')}>Reportes</a>
       </nav>
 
