@@ -312,6 +312,8 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitt
 // --- COMPONENTE PRINCIPAL MANTENIMIENTO ---
 
 function Mantenimiento({ user, token }) {
+    console.log('🔧 Mantenimiento component rendered', { user, token: token ? 'present' : 'missing' });
+
     const [mantenimientos, setMantenimientos] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -344,6 +346,7 @@ function Mantenimiento({ user, token }) {
     }, []);
 
     const fetchMantenimientos = useCallback(async () => {
+        console.log('🔧 fetchMantenimientos called');
         setLoading(true);
         setError(null);
         const params = new URLSearchParams({ page, per_page: meta.per_page });
@@ -352,7 +355,9 @@ function Mantenimiento({ user, token }) {
         if (filtroVehiculoId) params.append('vehiculo_id', filtroVehiculoId);
 
         try {
+            console.log('🔧 Making API call to:', `/api/mantenimiento/?${params.toString()}`);
             const res = await apiFetch(`/api/mantenimiento/?${params.toString()}`);
+            console.log('🔧 API response:', res);
             if (res && res.status === 200) {
                 setMantenimientos(res.data.data || []);
                 setMeta(res.data.meta || { page: 1, per_page: 20, total: 0, pages: 1 });
@@ -360,18 +365,33 @@ function Mantenimiento({ user, token }) {
                 setError(res.data?.message || 'Error cargando mantenimientos');
             }
         } catch (err) {
-            setError('Error de conexión');
-        } finally {
+            console.error('🔧 Error in fetchMantenimientos:', err);
+            setError('Error de conexión - verifica tu conexión a internet');
             setLoading(false);
         }
     }, [page, debouncedSearch, filtroEstado, filtroVehiculoId, meta.per_page]);
 
     useEffect(() => {
+        console.log('🔧 useEffect triggered', { token: !!token });
         if (token) {
             fetchMantenimientos();
             fetchVehiculosList();
+        } else {
+            console.log('🔧 No token available, skipping API calls');
         }
     }, [token, fetchMantenimientos, fetchVehiculosList]);
+
+    // Timeout para evitar carga infinita
+    useEffect(() => {
+        if (loading) {
+            const timeout = setTimeout(() => {
+                console.warn('🔧 Loading timeout reached');
+                setLoading(false);
+                setError('Tiempo de espera agotado. Verifica tu conexión.');
+            }, 10000); // 10 segundos
+            return () => clearTimeout(timeout);
+        }
+    }, [loading]);
 
     const handleFormSubmit = async (formData, mantId) => {
         setSubmitting(true);
