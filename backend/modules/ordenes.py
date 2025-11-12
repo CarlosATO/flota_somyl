@@ -1,6 +1,6 @@
 # === 1. IMPORTS (TODOS AL PRINCIPIO) ===
 from flask import Blueprint, request, jsonify, current_app, g
-from backend.utils.auth import auth_required, _has_write_permission 
+from ..utils.auth import auth_required, _has_write_permission
 from datetime import datetime
 import re
 

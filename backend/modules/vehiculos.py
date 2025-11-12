@@ -1,5 +1,5 @@
-from flask import Blueprint, request, jsonify, current_app, g
-from backend.utils.auth import auth_required
+from flask import Blueprint, request, jsonify, current_app
+from ..utils.auth import auth_required
 from datetime import datetime
 import numbers
 

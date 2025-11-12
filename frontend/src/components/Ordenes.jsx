@@ -156,10 +156,10 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                 origen: editingOrden.origen || '',
                 destino: editingOrden.destino || '',
                 descripcion: editingOrden.descripcion || '',
-                vehiculo_id: editingOrden.vehiculo_id || '',
-                conductor_id: editingOrden.conductor_id || '',
-                kilometraje_inicio: editingOrden.kilometraje_inicio || '',
-                kilometraje_fin: editingOrden.kilometraje_fin || '',
+                vehiculo_id: editingOrden.vehiculo_id || null,
+                conductor_id: editingOrden.conductor_id || null,
+                kilometraje_inicio: editingOrden.kilometraje_inicio || null,
+                kilometraje_fin: editingOrden.kilometraje_fin || null,
                 observaciones: editingOrden.observaciones || '',
             });
 
@@ -178,18 +178,32 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                 fecha_inicio_programada: formatDateTimeForInput(new Date().toISOString()),
                 fecha_fin_programada: '', fecha_inicio_real: '', fecha_fin_real: '',
                 origen: '', destino: '', descripcion: '',
-                vehiculo_id: '', conductor_id: '', kilometraje_inicio: '',
-                kilometraje_fin: '', observaciones: '',
+                vehiculo_id: null, conductor_id: null, kilometraje_inicio: null,
+                kilometraje_fin: null, observaciones: '',
             });
             setAdjuntos([]);
         }
     }, [editingOrden, isOpen, defaultTab]);
 
+    // Previene scroll del body cuando modal está abierto
+    useEffect(() => {
+        if (isOpen) {
+            document.body.classList.add('modal-open');
+        } else {
+            document.body.classList.remove('modal-open');
+        }
+
+        // Cleanup al desmontar
+        return () => {
+            document.body.classList.remove('modal-open');
+        };
+    }, [isOpen]);
+
     const handleChange = (e) => {
         const { name, value } = e.target;
         let finalValue = value;
         if (name === 'vehiculo_id' || name === 'conductor_id' || name === 'kilometraje_inicio' || name === 'kilometraje_fin') {
-            finalValue = value ? parseInt(value, 10) : '';
+            finalValue = value ? parseInt(value, 10) : null;
         }
         setForm({ ...form, [name]: finalValue });
     };
@@ -557,6 +571,20 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
 };
 
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitting }) => {
+    // Previene scroll del body cuando modal está abierto
+    useEffect(() => {
+        if (isOpen) {
+            document.body.classList.add('modal-open');
+        } else {
+            document.body.classList.remove('modal-open');
+        }
+
+        // Cleanup al desmontar
+        return () => {
+            document.body.classList.remove('modal-open');
+        };
+    }, [isOpen]);
+
     if (!isOpen) return null;
     return (
         <div className="modal-overlay" onClick={onClose}>
