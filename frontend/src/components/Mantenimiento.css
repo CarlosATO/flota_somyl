@@ -159,6 +159,28 @@
   background-color: #f8f9ff;
 }
 
+.mantenimiento-table tbody tr.row-editable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mantenimiento-table tbody tr.row-editable:hover {
+  background-color: #e8f4fd;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+  transform: translateY(-1px);
+}
+
+.mantenimiento-table tbody tr.row-readonly {
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.mantenimiento-table tbody tr.row-readonly:hover {
+  background-color: #f8f9fa;
+  box-shadow: none;
+  transform: none;
+}
+
 .mantenimiento-table tbody td {
   padding: 1rem;
   color: var(--color-text-dark);
@@ -168,6 +190,20 @@
 
 .font-bold {
   font-weight: 600;
+}
+
+.edit-indicator, .lock-indicator {
+  font-size: 0.8rem;
+  margin-left: 0.25rem;
+  opacity: 0.7;
+}
+
+.edit-indicator {
+  color: var(--color-primary);
+}
+
+.lock-indicator {
+  color: var(--color-text-light);
 }
 
 /* === BADGES ESPECÍFICOS DE MANTENIMIENTO === */
@@ -345,3 +381,15 @@
 /* === ESTADOS ESPECIALES === */
 .confirmation-message { margin: 0; font-size: 1rem; line-height: 1.5; }
 .empty-icon-pro { font-size: 3rem; display: block; margin-bottom: 1rem; }
+
+/* === MENSAJES INFORMATIVOS === */
+.table-info-message {
+  background-color: #e7f3ff;
+  color: #004085;
+  padding: 0.75rem 1rem;
+  border-radius: var(--border-radius);
+  margin-bottom: 1rem;
+  border: 1px solid #b3d7ff;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}

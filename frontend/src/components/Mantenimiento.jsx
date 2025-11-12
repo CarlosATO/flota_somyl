@@ -498,6 +498,31 @@ function Mantenimiento({ user, token }) {
         return `badge-mant-tipo ${tipoClass[tipo] || ''}`;
     };
 
+    // Función para manejar doble clic en fila
+    const handleRowDoubleClick = (mantenimiento) => {
+        // No permitir editar órdenes finalizadas
+        if (mantenimiento.estado === 'FINALIZADO') {
+            console.log('🔒 Orden finalizada, no se puede editar');
+            return;
+        }
+        
+        // Verificar permisos
+        if (!canWrite) {
+            console.log('🔒 Usuario sin permisos para editar');
+            return;
+        }
+        
+        console.log('🔧 Editando orden:', mantenimiento.id);
+        setEditingMantenimiento(mantenimiento);
+        setFormError(null);
+        setShowModal(true);
+    };
+
+    // Función para determinar si una fila es editable
+    const isRowEditable = (mantenimiento) => {
+        return canWrite && mantenimiento.estado !== 'FINALIZADO';
+    };
+
     if (!token) {
         return (
             <div className="mantenimiento-container">
@@ -551,6 +576,11 @@ function Mantenimiento({ user, token }) {
 
             {error && <div className="alert-error-pro">⚠️ {error}</div>}
 
+            <div className="table-info-message">
+                💡 <strong>Edición rápida:</strong> Haz doble clic en cualquier fila editable para modificarla. 
+                Las órdenes finalizadas no se pueden editar.
+            </div>
+
             <div className="table-container">
                 {loading && mantenimientos.length === 0 ? (
                     <div className="loading-state">Cargando órdenes de mantenimiento...</div>
@@ -572,8 +602,17 @@ function Mantenimiento({ user, token }) {
                         </thead>
                         <tbody>
                             {mantenimientos.map(m => (
-                                <tr key={m.id}>
-                                    <td className="font-bold">#{m.id}</td>
+                                <tr 
+                                    key={m.id} 
+                                    onDoubleClick={() => handleRowDoubleClick(m)}
+                                    className={isRowEditable(m) ? 'row-editable' : 'row-readonly'}
+                                    title={isRowEditable(m) ? '📝 Doble clic para editar esta orden' : '🔒 Orden finalizada - no editable'}
+                                >
+                                    <td className="font-bold">
+                                        #{m.id}
+                                        {isRowEditable(m) && <span className="edit-indicator" title="Editable"> ✏️</span>}
+                                        {m.estado === 'FINALIZADO' && <span className="lock-indicator" title="Finalizada"> 🔒</span>}
+                                    </td>
                                     <td><span className={getEstadoBadge(m.estado)}>{m.estado?.replace('_', ' ')}</span></td>
                                     <td>
                                         <span className="badge-mant-placa">{m.vehiculo?.placa || 'N/A'}</span>
@@ -589,7 +628,7 @@ function Mantenimiento({ user, token }) {
                                     {(canWrite || isAdmin) && (
                                         <td>
                                             <div className="action-buttons-pro">
-                                                {canWrite && (
+                                                {canWrite && m.estado !== 'FINALIZADO' && (
                                                     <button
                                                         onClick={() => { setEditingMantenimiento(m); setFormError(null); setShowModal(true); }}
                                                         className="btn-icon-pro btn-edit-pro"
