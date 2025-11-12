@@ -1,24 +1,21 @@
-/* En: frontend/src/components/Reportes.css */
-
 :root {
   --color-primary: #007bff;
   --color-success: #28a745;
   --color-warning: #ffc107;
   --color-danger: #dc3545;
-  --color-info: #17aaeb; /* Azul claro para info/maintenance */
+  --color-info: #17aaeb;
   --color-secondary: #6c757d;
   --color-bg-light: #f8f9fa;
   --color-text-dark: #343a40;
+  --color-text-light: #6c757d;
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --border-radius: 0.375rem;
 }
 
 .reportes-container {
+  max-width: 1400px;
+  margin: 0 auto;
   padding: 1.5rem;
-  background-color: #ffffff;
-  border-radius: var(--border-radius);
-  box-shadow: var(--shadow-md);
-  color: var(--color-text-dark);
 }
 
 .reportes-header {
@@ -31,9 +28,16 @@
   font-size: 1.875rem;
   font-weight: 700;
   margin: 0 0 0.5rem 0;
+  color: var(--color-text-dark);
 }
 
-/* --- GRID DE KPIS --- */
+.header-subtitle {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-text-light);
+}
+
+/* === KPIs Grid === */
 .kpis-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -42,12 +46,18 @@
 }
 
 .kpi-card {
-  background: #fdfdfd;
-  border: 1px solid #eee;
-  border-left: 5px solid var(--color-primary);
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid var(--color-primary);
   padding: 1.5rem;
   border-radius: var(--border-radius);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .kpi-card.vehiculos { border-left-color: var(--color-primary); }
@@ -56,11 +66,12 @@
 .kpi-card.mantenimiento { border-left-color: var(--color-info); }
 
 .kpi-title {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-secondary);
   text-transform: uppercase;
   margin-bottom: 0.75rem;
+  letter-spacing: 0.05em;
 }
 
 .kpi-value {
@@ -70,31 +81,68 @@
   line-height: 1;
 }
 
-.kpi-unit {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin-left: 0.25rem;
-}
-
 .kpi-meta {
   margin-top: 0.75rem;
   font-size: 0.8rem;
   color: var(--color-text-light);
 }
 
-/* --- SECCIÓN DE REPORTES ESPECÍFICOS --- */
+/* === Secciones de Reportes === */
 .report-section {
   margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--color-bg-light);
+  padding: 2rem;
+  background: white;
+  border-radius: var(--border-radius);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .report-section h3 {
   font-size: 1.5rem;
   font-weight: 700;
+  margin: 0 0 1.5rem 0;
+  color: var(--color-text-dark);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: 1.5rem;
 }
 
+.section-subtitle {
+  margin: 0.5rem 0 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.filter-group label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+}
+
+.filter-select-small {
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: white;
+  cursor: pointer;
+}
+
+.filter-select-small:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* === Costo === */
 .report-costo {
   background: linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%);
   border: 1px solid #80deea;
@@ -112,17 +160,270 @@
   font-size: 2.5rem;
   font-weight: 800;
   display: block;
-  margin-top: 0.25rem;
+  margin-top: 0.5rem;
 }
 
-/* --- ESTADOS DE CARGA/ERROR --- */
-.loading-state, .error-state {
-  text-align: center;
-  padding: 3rem;
-  color: var(--color-text-light);
-  font-style: italic;
+/* === Alertas Resumen === */
+.alertas-resumen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
 }
+
+.alerta-badge {
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: center;
+  border: 2px solid;
+}
+
+.alerta-badge.vencido {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+.alerta-badge.critico {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
+.alerta-badge.urgente {
+  background: #fef9c3;
+  color: #713f12;
+  border-color: #fde047;
+}
+
+.alerta-badge.proximo {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #6ee7b7;
+}
+
+/* === Tabla de Reportes === */
+.table-container-report {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.report-table thead {
+  background: #f8fafc;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.report-table th {
+  padding: 1rem 0.75rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.report-table tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
+}
+
+.report-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* Colores de filas según urgencia */
+.report-table tbody tr.row-vencido {
+  background: #fff5f5;
+}
+
+.report-table tbody tr.row-critico {
+  background: #fffbf0;
+}
+
+.report-table tbody tr.row-vencido:hover,
+.report-table tbody tr.row-critico:hover {
+  background: #fef2f2;
+}
+
+.report-table td {
+  padding: 1rem 0.75rem;
+  color: var(--color-text-dark);
+}
+
+/* === Celdas especiales === */
+.vehiculo-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.vehiculo-cell strong {
+  font-weight: 600;
+  color: var(--color-text-dark);
+}
+
+.vehiculo-cell small {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.descripcion-cell {
+  max-width: 250px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* === Badges === */
+.urgencia-badge {
+  display: inline-block;
+  padding: 0.375rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.urgencia-badge.vencido {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.urgencia-badge.critico {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.urgencia-badge.urgente {
+  background: #fef9c3;
+  color: #713f12;
+}
+
+.urgencia-badge.proximo {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.tipo-badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  background: #ede9fe;
+  color: #5b21b6;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.estado-badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.estado-badge.programado {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.estado-badge.pendiente {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.estado-badge.en_taller {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.dias-restantes {
+  font-size: 0.875rem;
+}
+
+.dias-restantes.vencido {
+  color: #dc2626;
+}
+
+.dias-restantes.critico {
+  color: #ea580c;
+}
+
+.dias-restantes.urgente {
+  color: #ca8a04;
+}
+
+.dias-restantes.proximo {
+  color: #059669;
+}
+
+/* === Estados === */
+.loading-state,
+.error-state,
+.empty-state-report {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--color-text-light);
+}
+
+.empty-state-report .empty-icon {
+  font-size: 3rem;
+  display: block;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
 .error-state {
   color: var(--color-danger);
   font-weight: 600;
+}
+
+/* === Responsive === */
+@media (max-width: 1024px) {
+  .reportes-container {
+    padding: 1rem;
+  }
+
+  .report-section {
+    padding: 1.5rem;
+  }
+
+  .section-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .table-container-report {
+    overflow-x: scroll;
+  }
+
+  .report-table {
+    min-width: 900px;
+  }
+}
+
+@media (max-width: 640px) {
+  .kpis-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .alertas-resumen {
+    grid-template-columns: 1fr;
+  }
+
+  .reportes-header h2 {
+    font-size: 1.5rem;
+  }
 }

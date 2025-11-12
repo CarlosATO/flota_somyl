@@ -1,5 +1,5 @@
 .topbar {
-  height: 64px;
+  height: 68px;
   background: white;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
@@ -45,7 +45,34 @@
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 #f1f5f9;
-  padding: 0 0.5rem;
+  padding: 0 0.5rem 8px 0.5rem; /* Padding inferior para el scrollbar */
+  position: relative;
+  margin: 0 0.5rem;
+}
+
+/* Indicador visual de scroll a la derecha */
+.topbar-nav::after {
+  content: '';
+  position: sticky;
+  right: 0;
+  width: 40px;
+  height: 100%;
+  background: linear-gradient(to left, white 0%, transparent 100%);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+/* Indicador visual de scroll a la izquierda */
+.topbar-nav::before {
+  content: '';
+  position: sticky;
+  left: 0;
+  width: 40px;
+  height: 100%;
+  background: linear-gradient(to right, white 0%, transparent 100%);
+  pointer-events: none;
+  flex-shrink: 0;
+  z-index: 1;
 }
 
 .topbar-nav::-webkit-scrollbar {
