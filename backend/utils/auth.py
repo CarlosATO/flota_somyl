@@ -142,3 +142,18 @@ def _has_write_permission(user: dict) -> bool:
         return False
     cargo = (user.get('cargo') or '').lower()
     return cargo in ('administrador', 'dispatcher')
+
+
+def _is_admin(user: dict) -> bool:
+    """Verifica si el usuario es Administrador.
+    
+    Args:
+        user: Diccionario con información del usuario (debe contener 'cargo')
+        
+    Returns:
+        True si el usuario es Administrador, False en caso contrario
+    """
+    if not user:
+        return False
+    cargo = (user.get('cargo') or '').lower()
+    return cargo == 'administrador'
