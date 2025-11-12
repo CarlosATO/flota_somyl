@@ -231,3 +231,91 @@ def delete_mantenimiento(mant_id):
     except Exception as e:
         current_app.logger.error(f"Error al eliminar mantenimiento {mant_id}: {e}")
         return jsonify({'message': 'Error al realizar el soft-delete', 'detail': str(e)}), 500
+
+
+# === RUTAS DE ADJUNTOS PARA MANTENIMIENTO ===
+
+@bp.route('/<int:mant_id>/adjuntos', methods=['GET'])
+@auth_required
+def list_mant_adjuntos(mant_id):
+    """Lista adjuntos de una orden de mantenimiento."""
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        # Consulta la nueva tabla
+        res = supabase.table('flota_mantenimiento_adjuntos').select('*') \
+            .eq('mantenimiento_id', mant_id) \
+            .order('created_at', desc=True) \
+            .execute()
+        return jsonify({'data': res.data or []})
+    except Exception as e:
+        current_app.logger.error(f"Error al listar adjuntos de mantenimiento {mant_id}: {e}")
+        return jsonify({'message': 'Error al obtener adjuntos de mantenimiento'}), 500
+
+
+@bp.route('/<int:mant_id>/adjuntos', methods=['POST'])
+@auth_required
+def add_mant_adjunto(mant_id):
+    """Agrega un registro de adjunto a una orden de mantenimiento."""
+    user = g.get('current_user')
+    if not _has_write_permission(user):
+         return jsonify({'message': 'Permisos insuficientes'}), 403
+
+    payload = request.get_json() or {}
+    storage_path = payload.get('storage_path')
+    if not storage_path:
+        return jsonify({'message': 'Falta storage_path'}), 400
+
+    row = {
+        'mantenimiento_id': mant_id,
+        'usuario_id': user.get('id'),
+        'storage_path': storage_path,
+        'nombre_archivo': payload.get('nombre_archivo'),
+        'mime_type': payload.get('mime_type'),
+        'observacion': payload.get('observacion'),
+    }
+    supabase = current_app.config.get('SUPABASE')
+    try:
+        # Inserta en la nueva tabla
+        res = supabase.table('flota_mantenimiento_adjuntos').insert(row).execute()
+        return jsonify({'data': res.data[0]}), 201
+    except Exception as e:
+        current_app.logger.error(f"Error al guardar adjunto de mantenimiento: {e}")
+        return jsonify({'message': 'Error al guardar adjunto de mantenimiento'}), 500
+
+
+@bp.route('/adjuntos/<int:adjunto_id>', methods=['DELETE'])
+@auth_required
+def delete_mant_adjunto(adjunto_id):
+    """Elimina un registro de adjunto y su archivo de Storage."""
+    user = g.get('current_user')
+    if not _has_write_permission(user):
+         return jsonify({'message': 'Permisos insuficientes'}), 403
+
+    supabase = current_app.config.get('SUPABASE')
+    storage_path = None
+
+    # 1. Obtener el path del archivo de Storage (desde la nueva tabla)
+    try:
+        res = supabase.table('flota_mantenimiento_adjuntos').select('storage_path') \
+            .eq('id', adjunto_id).limit(1).execute()
+        if not res.data:
+            return jsonify({'message': 'Adjunto de mantenimiento no encontrado'}), 404
+        storage_path = res.data[0].get('storage_path')
+    except Exception as e:
+        return jsonify({'message': 'Error al buscar adjunto de mantenimiento'}), 500
+
+    # 2. Borrar el registro de la DB
+    try:
+        supabase.table('flota_mantenimiento_adjuntos').delete().eq('id', adjunto_id).execute()
+    except Exception as e:
+        return jsonify({'message': 'Error al borrar registro de adjunto'}), 500
+
+    # 3. Borrar el archivo de Supabase Storage
+    try:
+        if storage_path:
+            # Usa el mismo bucket 'adjuntos_ordenes' que el módulo de Órdenes
+            supabase.storage.from_('adjuntos_ordenes').remove([storage_path])
+        return jsonify({'message': 'Adjunto de mantenimiento eliminado'}), 200
+    except Exception as e:
+        current_app.logger.error(f"Error al borrar archivo de Storage: {e}")
+        return jsonify({'message': 'Registro eliminado, pero falló la eliminación del archivo en Storage'}), 200
