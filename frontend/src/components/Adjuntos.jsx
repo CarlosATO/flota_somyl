@@ -215,7 +215,7 @@ function Adjuntos({ token }) {
                                                                                                                                 👁️ Ver
                                                                                                                             </button>
                                                                                                                             <button
-                                                                                                                                onClick={() => window.open(`/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`, '_self')}
+                                                                                                                                onClick={() => downloadAdjunto(adj)}
                                                                                                                                 className="btn btn-secondary btn-icon"
                                                                                                                                 style={{padding: '0.35rem 0.8rem', fontSize: '0.85rem', background: '#e6eefc', color: '#2563eb', borderRadius: '6px', border: '1px solid #cfe0ff', cursor: 'pointer'}}
                                                                                                                             >
