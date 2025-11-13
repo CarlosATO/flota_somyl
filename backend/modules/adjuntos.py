@@ -1,5 +1,6 @@
 import os
-from flask import Blueprint, request, jsonify, current_app, g
+import requests
+from flask import Blueprint, request, jsonify, current_app, g, Response, stream_with_context
 from ..utils.auth import auth_required
 from datetime import datetime
 
@@ -171,3 +172,58 @@ def search_adjuntos():
         'data': todos_adjuntos,
         'meta': {'total_results': len(todos_adjuntos)}
     }), 200
+
+
+@bp.route('/download', methods=['GET'])
+@auth_required
+def download_adjunto():
+    """Proxy para descargar un archivo de Supabase Storage y forzar Content-Disposition=attachment.
+
+    Parámetros: ?path=<storage_path>&name=<filename_optional>
+    """
+    supabase = current_app.config.get('SUPABASE')
+    if not supabase:
+        return jsonify({'message': 'Supabase no configurado'}), 500
+
+    storage_path = request.args.get('path')
+    filename = request.args.get('name') or (os.path.basename(storage_path) if storage_path else 'file')
+    bucket = 'adjuntos_ordenes'
+
+    if not storage_path:
+        return jsonify({'message': 'Falta parámetro path'}), 400
+
+    try:
+        # Intentar obtener una URL pública/signed desde Supabase
+        try:
+            public = supabase.storage.from_(bucket).get_public_url(storage_path)
+            url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None)
+        except Exception:
+            url = None
+
+        # Si no hay public url, intentar crear signed url (1 hora)
+        if not url:
+            try:
+                signed = supabase.storage.from_(bucket).create_signed_url(storage_path, 3600)
+                # signed puede devolver dict con 'signedURL' o 'data' según versión
+                url = (signed.get('signedURL') if isinstance(signed, dict) and signed.get('signedURL') else (signed.get('data', {}).get('signed_url') if isinstance(signed, dict) else None))
+            except Exception:
+                url = None
+
+        if not url:
+            return jsonify({'message': 'No se pudo obtener URL del archivo'}), 500
+
+        # Solicitar el recurso y streamarlo al cliente con header de descarga
+        r = requests.get(url, stream=True, timeout=30)
+        if r.status_code != 200:
+            return jsonify({'message': f'Error al descargar archivo (status {r.status_code})'}), 502
+
+        headers = {
+            'Content-Type': r.headers.get('Content-Type', 'application/octet-stream'),
+            'Content-Length': r.headers.get('Content-Length') or '',
+            'Content-Disposition': f'attachment; filename="{filename}"'
+        }
+
+        return Response(stream_with_context(r.iter_content(chunk_size=8192)), headers=headers, status=200)
+    except Exception as e:
+        current_app.logger.error(f'Error en download_adjunto: {e}')
+        return jsonify({'message': 'Error al procesar la descarga'}), 500

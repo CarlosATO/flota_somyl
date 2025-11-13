@@ -971,7 +971,7 @@ function Vehiculos({ user, token }) {
                                             <div style={{display: 'flex', gap: '0.5rem'}}>
                                                 <button className="btn btn-primary" onClick={() => openPreview(adj)}>👁️ Ver</button>
                                                 <a className="btn btn-secondary" href={(() => { try { const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path); return data.publicUrl || '#'; } catch(e){ return '#'; } })()} target="_blank" rel="noopener noreferrer">Abrir</a>
-                                                <button className="btn" onClick={() => { const url = (() => { try { const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path); return data.publicUrl || '#'; } catch(e){ return '#'; } })(); const a = document.createElement('a'); a.href = url; a.download = adj.nombre_archivo || ''; document.body.appendChild(a); a.click(); document.body.removeChild(a); }}>⬇️ Descargar</button>
+                                                <button className="btn" onClick={() => { window.open(`/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`, '_self'); }}>⬇️ Descargar</button>
                                             </div>
                                         </div>
                                     ))}
