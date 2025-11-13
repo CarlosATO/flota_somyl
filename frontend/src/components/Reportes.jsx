@@ -30,10 +30,22 @@ const KPI_INITIAL_STATE = {
 function Reportes({ token }) {
     const [kpis, setKpis] = useState(KPI_INITIAL_STATE);
     const [mantenimientos, setMantenimientos] = useState([]);
+    const [licencias, setLicencias] = useState([]);
     const [metaMantenimientos, setMetaMantenimientos] = useState({});
+    const [metaLicencias, setMetaLicencias] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [diasVentana, setDiasVentana] = useState(30);
+    const [diasVentanaMantenimientos, setDiasVentanaMantenimientos] = useState(30);
+    const [diasVentanaLicencias, setDiasVentanaLicencias] = useState(60);
+    
+    // Estados para colapsables y modales
+    const [mantenimientosExpanded, setMantenimientosExpanded] = useState(true);
+    const [licenciasExpanded, setLicenciasExpanded] = useState(true);
+    const [modalDetalle, setModalDetalle] = useState(null); // null | 'vehiculos' | 'conductores' | 'ordenes'
+
+    // Estados para análisis de vehículos (Combustible)
+    const [analisisVehiculos, setAnalisisVehiculos] = useState([]);
+    const [loadingAnalisis, setLoadingAnalisis] = useState(false);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -41,29 +53,24 @@ function Reportes({ token }) {
 
         try {
             if (!token) {
-                throw new Error('No hay sesión activa. Por favor, inicia sesión nuevamente.');
+                throw new Error('No hay sesión activa');
             }
 
-            // 1. KPIs de Resumen
+            // 1. KPIs
             const resKpis = await apiFetch('/api/reportes/kpis_resumen');
-            if (resKpis.status === 401) {
-                throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
-            }
-            if (resKpis.status !== 200) {
-                throw new Error(resKpis.data?.message || 'Error al cargar KPIs');
-            }
+            if (resKpis.status !== 200) throw new Error('Error al cargar KPIs');
 
-            // 2. Costo de Mantenimiento
+            // 2. Costos
             const resCosto = await apiFetch('/api/reportes/costo_mantenimiento_mensual');
-            if (resCosto.status !== 200) {
-                throw new Error(resCosto.data?.message || 'Error al cargar costos');
-            }
+            if (resCosto.status !== 200) throw new Error('Error al cargar costos');
 
             // 3. Mantenimientos por vencer
-            const resMant = await apiFetch(`/api/reportes/mantenimientos_por_vencer?dias=${diasVentana}`);
-            if (resMant.status !== 200) {
-                throw new Error(resMant.data?.message || 'Error al cargar mantenimientos');
-            }
+            const resMant = await apiFetch(`/api/reportes/mantenimientos_por_vencer?dias=${diasVentanaMantenimientos}`);
+            if (resMant.status !== 200) throw new Error('Error al cargar mantenimientos');
+
+            // 4. Licencias por vencer
+            const resLic = await apiFetch(`/api/reportes/licencias_por_vencer?dias=${diasVentanaLicencias}`);
+            if (resLic.status !== 200) throw new Error('Error al cargar licencias');
 
             setKpis({
                 ...resKpis.data.data,
@@ -73,29 +80,47 @@ function Reportes({ token }) {
             setMantenimientos(resMant.data.data || []);
             setMetaMantenimientos(resMant.data.meta || {});
 
-        } catch (err) {
-            console.error('Error en Reportes:', err);
-            const errorMessage = err.message || 'Error desconocido';
+            setLicencias(resLic.data.data || []);
+            setMetaLicencias(resLic.data.meta || {});
 
-            if (errorMessage.includes('Sesión expirada') || errorMessage.includes('Token no provisto')) {
-                localStorage.removeItem('token');
-                setError('Tu sesión ha expirado. Por favor, recarga la página e inicia sesión nuevamente.');
-            } else {
-                setError(errorMessage);
+            // 5. Análisis de Vehículos (Combustible)
+            try {
+                setLoadingAnalisis(true);
+                const resAnalisis = await apiFetch('/api/reportes/analisis_vehiculos');
+                if (resAnalisis.status === 200) {
+                    setAnalisisVehiculos(resAnalisis.data.data || []);
+                }
+            } finally {
+                setLoadingAnalisis(false);
             }
+
+        } catch (err) {
+            setError(err.message || 'Error al cargar reportes');
         } finally {
             setLoading(false);
         }
-    }, [token, diasVentana]);
+    }, [token, diasVentanaMantenimientos, diasVentanaLicencias]);
 
     useEffect(() => {
         if (token) {
             fetchData();
         } else {
-            setError('No hay sesión activa. Por favor, inicia sesión.');
+            setError('No hay sesión activa');
             setLoading(false);
         }
     }, [token, fetchData]);
+
+    const handleKPIClick = (tipo) => {
+        setModalDetalle(tipo);
+    };
+
+    // Helper para mostrar estado de documento
+    const getEstadoDocumento = (doc) => {
+        if (!doc) return { texto: 'SIN REGISTRO', clase: 'doc-sin-registro' };
+        if (doc.estado === 'VENCIDO') return { texto: 'VENCIDO', clase: 'doc-vencido' };
+        if (doc.estado === 'POR_VENCER') return { texto: `${doc.dias_restantes} días`, clase: 'doc-por-vencer' };
+        return { texto: `${doc.dias_restantes} días`, clase: 'doc-vigente' };
+    };
 
     if (!token) return <div className="loading-state">Cargando...</div>;
 
@@ -106,64 +131,127 @@ function Reportes({ token }) {
                 <p className="header-subtitle">Métricas clave y alertas del sistema</p>
             </div>
 
-            {loading && <div className="loading-state">Cargando datos del dashboard...</div>}
+            {loading && <div className="loading-state">Cargando datos...</div>}
             {error && <div className="error-state">⚠️ {error}</div>}
 
             {!loading && !error && (
                 <>
-                    {/* KPIs Grid */}
+                    {/* KPIs Clickeables */}
                     <div className="kpis-grid">
-                        <div className="kpi-card vehiculos">
+                        <div className="kpi-card vehiculos clickeable" onClick={() => handleKPIClick('vehiculos')}>
                             <div className="kpi-title">🚗 Total Vehículos</div>
                             <div className="kpi-value">{kpis.total_vehiculos || 0}</div>
+                            <div className="kpi-action">Click para ver detalles →</div>
                         </div>
 
-                        <div className="kpi-card conductores">
+                        <div className="kpi-card conductores clickeable" onClick={() => handleKPIClick('conductores')}>
                             <div className="kpi-title">👥 Total Conductores</div>
                             <div className="kpi-value">{kpis.total_conductores || 0}</div>
+                            <div className="kpi-action">Click para ver detalles →</div>
                         </div>
 
-                        <div className="kpi-card ordenes">
+                        <div className="kpi-card ordenes clickeable" onClick={() => handleKPIClick('ordenes')}>
                             <div className="kpi-title">📅 Órdenes Activas</div>
                             <div className="kpi-value">{kpis.ordenes_activas || 0}</div>
                             <div className="kpi-meta">Pendientes o Asignadas</div>
+                            <div className="kpi-action">Click para ver detalles →</div>
                         </div>
 
-                        <div className="kpi-card mantenimiento">
+                        <div className="kpi-card mantenimiento clickeable" onClick={() => handleKPIClick('mantenimientos')}>
                             <div className="kpi-title">🛠️ Mantenimientos Pendientes</div>
                             <div className="kpi-value">{kpis.mantenimientos_pendientes || 0}</div>
                             <div className="kpi-meta">Programados o En Taller</div>
+                            <div className="kpi-action">Click para ver detalles →</div>
                         </div>
                     </div>
 
                     {/* Costos */}
                     <div className="report-section">
-                        <h3>💰 Finanzas Operacionales</h3>
                         <div className="report-costo">
-                            <div className="costo-label">Costo Total de Mantenimiento (Últimos 30 días)</div>
+                            <div className="costo-label">💰 Costo Total de Mantenimiento (Últimos 30 días)</div>
                             <div className="costo-value">{formatCurrency(kpis.costo_total_clp || 0)}</div>
                         </div>
                     </div>
 
-                    {/* Mantenimientos por Vencer */}
+                    {/* Mantenimientos por Vencer - Colapsable */}
                     <div className="report-section">
-                        <div className="section-header">
-                            <div>
-                                <h3>⚠️ Mantenimientos por Vencer</h3>
-                                <p className="section-subtitle">
-                                    {metaMantenimientos.total || 0} mantenimientos en los próximos {diasVentana} días
-                                </p>
+                        <div 
+                            className="section-header-collapsible" 
+                            onClick={() => setMantenimientosExpanded(!mantenimientosExpanded)}
+                        >
+                            <div className="section-title-collapsible">
+                                <span className="collapse-icon">{mantenimientosExpanded ? '▼' : '▶'}</span>
+                                <h3>🔧 Mantenimientos Programados ({metaMantenimientos.total || 0})</h3>
                             </div>
                             <div className="filter-group">
-                                <label htmlFor="diasVentana">Ventana de días:</label>
+                                <label htmlFor="diasVentanaMantenimientos">Ventana:</label>
                                 <select 
-                                    id="diasVentana"
-                                    value={diasVentana} 
-                                    onChange={(e) => setDiasVentana(Number(e.target.value))}
+                                    id="diasVentanaMantenimientos"
+                                    value={diasVentanaMantenimientos} 
+                                    onChange={(e) => setDiasVentanaMantenimientos(Number(e.target.value))}
+                                    onClick={(e) => e.stopPropagation()}
                                     className="filter-select-small"
                                 >
                                     <option value="7">7 días</option>
                                     <option value="15">15 días</option>
+                                    <option value="30">30 días</option>
+                                    <option value="60">60 días</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {mantenimientosExpanded && (
+                            <div className="collapsible-content">
+                                <div className="alertas-resumen">
+                                    <div className="alerta-badge vencido">
+                                        <span style={{fontSize: '1rem'}}>●</span>
+                                        <span>{metaMantenimientos.vencidos || 0} Vencidos</span>
+                                    </div>
+                                    <div className="alerta-badge critico">
+                                        <span style={{fontSize: '1rem'}}>●</span>
+                                        <span>{metaMantenimientos.criticos || 0} Críticos</span>
+                                    </div>
+                                    <div className="alerta-badge urgente">
+                                        <span style={{fontSize: '1rem'}}>●</span>
+                                        <span>{metaMantenimientos.urgentes || 0} Urgentes</span>
+                                    </div>
+                                    <div className="alerta-badge proximo">
+                                        <span style={{fontSize: '1rem'}}>●</span>
+                                        <span>{metaMantenimientos.proximos || 0} Próximos</span>
+                                    </div>
+                                </div>
+
+                                {mantenimientos.length === 0 ? (
+                                    <div className="empty-state-report">
+                                        <span className="empty-icon">✅</span>
+                                        <p>No hay mantenimientos próximos a vencer</p>
+                                    </div>
+                                ) : (
+                                    <TablaMantenimientos mantenimientos={mantenimientos} />
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Licencias por Vencer - Colapsable */}
+                    <div className="report-section">
+                        <div 
+                            className="section-header-collapsible" 
+                            onClick={() => setLicenciasExpanded(!licenciasExpanded)}
+                        >
+                            <div className="section-title-collapsible">
+                                <span className="collapse-icon">{licenciasExpanded ? '▼' : '▶'}</span>
+                                <h3>📋 Licencias de Conducir ({metaLicencias.total || 0})</h3>
+                            </div>
+                            <div className="filter-group">
+                                <label htmlFor="diasVentanaLicencias">Ventana:</label>
+                                <select 
+                                    id="diasVentanaLicencias"
+                                    value={diasVentanaLicencias} 
+                                    onChange={(e) => setDiasVentanaLicencias(Number(e.target.value))}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="filter-select-small"
+                                >
                                     <option value="30">30 días</option>
                                     <option value="60">60 días</option>
                                     <option value="90">90 días</option>
@@ -171,82 +259,116 @@ function Reportes({ token }) {
                             </div>
                         </div>
 
-                        {/* Resumen de alertas */}
-                        <div className="alertas-resumen">
-                            <div className="alerta-badge vencido">
-                                ⛔ {metaMantenimientos.vencidos || 0} Vencidos
+                        {licenciasExpanded && (
+                            <div className="collapsible-content">
+                                <div className="alertas-resumen">
+                                    <div className="alerta-badge vencida">
+                                        <span style={{fontSize: '1rem'}}>●</span>
+                                        <span>{metaLicencias.vencidas || 0} Vencidas</span>
+                                    </div>
+                                    <div className="alerta-badge criticos">
+                                        <span style={{fontSize: '1rem'}}>●</span>
+                                        <span>{metaLicencias.criticos || 0} Críticos</span>
+                                    </div>
+                                    <div className="alerta-badge urgentes">
+                                        <span style={{fontSize: '1rem'}}>●</span>
+                                        <span>{metaLicencias.urgentes || 0} Urgentes</span>
+                                    </div>
+                                    <div className="alerta-badge proximos">
+                                        <span style={{fontSize: '1rem'}}>●</span>
+                                        <span>{metaLicencias.proximos || 0} Próximos</span>
+                                    </div>
+                                </div>
+
+                                {licencias.length === 0 ? (
+                                    <div className="empty-state-report">
+                                        <span className="empty-icon">✅</span>
+                                        <p>No hay licencias próximas a vencer</p>
+                                    </div>
+                                ) : (
+                                    <TablaLicencias licencias={licencias} />
+                                )}
                             </div>
-                            <div className="alerta-badge critico">
-                                🔴 {metaMantenimientos.criticos || 0} Críticos (≤7 días)
-                            </div>
-                            <div className="alerta-badge urgente">
-                                🟡 {metaMantenimientos.urgentes || 0} Urgentes (≤15 días)
-                            </div>
-                            <div className="alerta-badge proximo">
-                                🟢 {metaMantenimientos.proximos || 0} Próximos
+                        )}
+                    </div>
+
+                    {/* Análisis Detallado de Vehículos (Combustible) */}
+                    <div className="reportes-section">
+                        <div className="section-header">
+                            <div>
+                                <h3>🚗 Análisis Detallado de Vehículos</h3>
+                                <p className="section-subtitle">
+                                    Consumo de combustible y documentación obligatoria
+                                </p>
                             </div>
                         </div>
 
-                        {/* Tabla de mantenimientos */}
-                        {mantenimientos.length === 0 ? (
+                        {loadingAnalisis ? (
+                            <div className="loading-message">Cargando análisis...</div>
+                        ) : analisisVehiculos.length === 0 ? (
                             <div className="empty-state-report">
-                                <span className="empty-icon">✅</span>
-                                <p>No hay mantenimientos próximos a vencer</p>
+                                <span className="empty-icon">📊</span>
+                                <p>No hay datos suficientes para análisis</p>
                             </div>
                         ) : (
                             <div className="table-container-report">
-                                <table className="report-table">
+                                <table className="reportes-table">
                                     <thead>
                                         <tr>
-                                            <th>Urgencia</th>
-                                            <th>Vehículo</th>
+                                            <th>Patente</th>
+                                            <th>Marca/Modelo</th>
+                                            <th>Año</th>
                                             <th>Tipo</th>
-                                            <th>Descripción</th>
-                                            <th>Fecha Programada</th>
-                                            <th>Días Restantes</th>
-                                            <th>Estado</th>
-                                            <th>Costo Est.</th>
+                                            <th>Último KM</th>
+                                            <th>Promedio L/KM</th>
+                                            <th>Costo/KM</th>
+                                            <th>Gasto Último Mes</th>
+                                            <th>Permiso Circ.</th>
+                                            <th>Rev. Técnica</th>
+                                            <th>SOAP</th>
+                                            <th>Seguro Oblig.</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {mantenimientos.map((mant) => (
-                                            <tr key={mant.id} className={`row-${mant.urgencia}`}>
-                                                <td>
-                                                    <span className={`urgencia-badge ${mant.urgencia}`}>
-                                                        {mant.urgencia === 'vencido' && '⛔ Vencido'}
-                                                        {mant.urgencia === 'critico' && '🔴 Crítico'}
-                                                        {mant.urgencia === 'urgente' && '🟡 Urgente'}
-                                                        {mant.urgencia === 'proximo' && '🟢 Próximo'}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <div className="vehiculo-cell">
-                                                        <strong>{mant.vehiculo?.placa || 'N/A'}</strong>
-                                                        <small>{mant.vehiculo?.marca} {mant.vehiculo?.modelo}</small>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <span className="tipo-badge">
-                                                        {mant.tipo_mantenimiento}
-                                                    </span>
-                                                </td>
-                                                <td className="descripcion-cell">
-                                                    {mant.descripcion || '-'}
-                                                </td>
-                                                <td>{formatDate(mant.fecha_programada)}</td>
-                                                <td>
-                                                    <strong className={`dias-restantes ${mant.urgencia}`}>
-                                                        {mant.dias_restantes} días
-                                                    </strong>
-                                                </td>
-                                                <td>
-                                                    <span className={`estado-badge ${mant.estado}`}>
-                                                        {mant.estado}
-                                                    </span>
-                                                </td>
-                                                <td>{formatCurrency(mant.costo)}</td>
-                                            </tr>
-                                        ))}
+                                        {analisisVehiculos.map((vehiculo) => {
+                                            const permiso = getEstadoDocumento(vehiculo.permiso_circulacion);
+                                            const revision = getEstadoDocumento(vehiculo.revision_tecnica);
+                                            const soap = getEstadoDocumento(vehiculo.soap);
+                                            const seguro = getEstadoDocumento(vehiculo.seguro_obligatorio);
+
+                                            return (
+                                                <tr key={vehiculo.id}>
+                                                    <td><strong>{vehiculo.patente}</strong></td>
+                                                    <td>{vehiculo.marca} {vehiculo.modelo}</td>
+                                                    <td>{vehiculo.ano}</td>
+                                                    <td>{vehiculo.tipo}</td>
+                                                    <td>{vehiculo.ultimo_km ? vehiculo.ultimo_km.toLocaleString() : '0'} km</td>
+                                                    <td>{vehiculo.promedio_l_km || '0'} L/km</td>
+                                                    <td>{formatCurrency(vehiculo.costo_por_km)}</td>
+                                                    <td>{formatCurrency(vehiculo.total_gastado_mes)}</td>
+                                                    <td>
+                                                        <span className={`doc-badge ${permiso.clase}`}>
+                                                            {permiso.texto}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span className={`doc-badge ${revision.clase}`}>
+                                                            {revision.texto}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span className={`doc-badge ${soap.clase}`}>
+                                                            {soap.texto}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span className={`doc-badge ${seguro.clase}`}>
+                                                            {seguro.texto}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -254,7 +376,295 @@ function Reportes({ token }) {
                     </div>
                 </>
             )}
+
+            {/* Modal de Detalle */}
+            {modalDetalle && (
+                <ModalDetalle 
+                    tipo={modalDetalle} 
+                    onClose={() => setModalDetalle(null)} 
+                />
+            )}
         </div>
+    );
+}
+
+// Componente para Tabla de Mantenimientos
+function TablaMantenimientos({ mantenimientos }) {
+    return (
+        <div className="table-container-report">
+            <table className="report-table">
+                <thead>
+                    <tr>
+                        <th>Urgencia</th>
+                        <th>Vehículo</th>
+                        <th>Tipo</th>
+                        <th>Descripción</th>
+                        <th>Fecha Programada</th>
+                        <th>Días Restantes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {mantenimientos.map((mant) => (
+                        <tr key={mant.id} className={`row-${mant.urgencia}`}>
+                            <td>
+                                <span className={`urgencia-badge ${mant.urgencia}`}>
+                                    <span style={{fontSize: '0.875rem'}}>●</span>
+                                    <span>{mant.urgencia === 'vencido' ? 'VENCIDO' : 
+                                           mant.urgencia === 'critico' ? 'CRÍTICO' : 
+                                           mant.urgencia === 'urgente' ? 'URGENTE' : 'PRÓXIMO'}</span>
+                                </span>
+                            </td>
+                            <td>
+                                <div className="vehiculo-cell">
+                                    <strong>{mant.vehiculo?.placa || 'N/A'}</strong>
+                                    <small>{mant.vehiculo?.marca} {mant.vehiculo?.modelo}</small>
+                                </div>
+                            </td>
+                            <td>{mant.tipo_mantenimiento}</td>
+                            <td className="descripcion-cell">{mant.descripcion || '-'}</td>
+                            <td>{formatDate(mant.fecha_programada)}</td>
+                            <td>
+                                <strong className={`dias-restantes ${mant.urgencia}`}>
+                                    {mant.dias_restantes} días
+                                </strong>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+// Componente para Tabla de Licencias
+function TablaLicencias({ licencias }) {
+    return (
+        <div className="table-container-report">
+            <table className="report-table">
+                <thead>
+                    <tr>
+                        <th>Urgencia</th>
+                        <th>Conductor</th>
+                        <th>RUT</th>
+                        <th>Nº Licencia</th>
+                        <th>Tipo</th>
+                        <th>Vencimiento</th>
+                        <th>Días Restantes</th>
+                        <th>Contacto</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {licencias.map((lic) => (
+                        <tr key={lic.id} className={`row-${lic.urgencia}`}>
+                            <td>
+                                <span className={`urgencia-badge ${lic.urgencia}`}>
+                                    <span style={{fontSize: '0.875rem'}}>●</span>
+                                    <span>{lic.urgencia === 'vencida' ? 'VENCIDA' : 
+                                           lic.urgencia === 'critico' ? 'CRÍTICO' : 
+                                           lic.urgencia === 'urgente' ? 'URGENTE' : 'PRÓXIMO'}</span>
+                                </span>
+                            </td>
+                            <td>
+                                <strong>{lic.nombre_completo}</strong>
+                            </td>
+                            <td><code>{lic.rut}</code></td>
+                            <td><code>{lic.licencia_numero}</code></td>
+                            <td>
+                                <span className="tipo-badge">{lic.licencia_tipo}</span>
+                            </td>
+                            <td>{formatDate(lic.licencia_vencimiento)}</td>
+                            <td>
+                                <strong className={`dias-restantes ${lic.urgencia}`}>
+                                    {lic.dias_restantes} días
+                                </strong>
+                            </td>
+                            <td>
+                                <small>{lic.telefono || '-'}</small>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+// Modal de Detalle para KPIs
+function ModalDetalle({ tipo, onClose }) {
+    const [data, setData] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchDetalle = async () => {
+            setLoading(true);
+            try {
+                const res = await apiFetch(`/api/reportes/detalle_${tipo}`);
+                if (res.status === 200) {
+                    setData(res.data.data || []);
+                }
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchDetalle();
+    }, [tipo]);
+
+    const getTitulo = () => {
+        switch(tipo) {
+            case 'vehiculos': return '🚗 Detalle de Vehículos';
+            case 'conductores': return '👥 Detalle de Conductores';
+            case 'ordenes': return '📅 Detalle de Órdenes Activas';
+            case 'mantenimientos': return '🛠️ Detalle de Mantenimientos Pendientes';
+            default: return 'Detalle';
+        }
+    };
+
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-detalle" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header-detalle">
+                    <h3>{getTitulo()}</h3>
+                    <button className="btn-close-modal" onClick={onClose}>✕</button>
+                </div>
+                <div className="modal-body-detalle">
+                    {loading ? (
+                        <div className="loading-state">Cargando...</div>
+                    ) : (
+                        <>
+                            {tipo === 'vehiculos' && <TablaDetalleVehiculos data={data} />}
+                            {tipo === 'conductores' && <TablaDetalleConductores data={data} />}
+                            {tipo === 'ordenes' && <TablaDetalleOrdenes data={data} />}
+                            {tipo === 'mantenimientos' && <TablaDetalleMantenimientos data={data} />}
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Tabla del modal para Mantenimientos (sin urgencia, solo detalle)
+function TablaDetalleMantenimientos({ data }) {
+    if (!data || data.length === 0) {
+        return <div className="empty-state-report">No hay mantenimientos para mostrar</div>;
+    }
+
+    return (
+        <table className="modal-table">
+            <thead>
+                <tr>
+                    <th>Patente</th>
+                    <th>Modelo</th>
+                    <th>Tipo</th>
+                    <th>Descripción</th>
+                    <th>F. Programada</th>
+                    <th>Costo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {data.map(m => (
+                    <tr key={m.id}>
+                        <td><strong>{m.vehiculo_placa || '-'}</strong></td>
+                        <td>{m.vehiculo_modelo || '-'}</td>
+                        <td>{m.tipo || '-'}</td>
+                        <td className="descripcion-cell">{m.descripcion || '-'}</td>
+                        <td>{formatDate(m.fecha_programada)}</td>
+                        <td>{formatCurrency(m.costo)}</td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    );
+}
+
+function TablaDetalleVehiculos({ data }) {
+    if (!data || data.length === 0) {
+        return <div className="empty-state-report">No hay vehículos para mostrar</div>;
+    }
+    
+    return (
+        <table className="modal-table">
+            <thead>
+                <tr>
+                    <th>Placa</th>
+                    <th>Marca/Modelo</th>
+                    <th>Tipo</th>
+                    <th>Año</th>
+                    <th>KM Actual</th>
+                </tr>
+            </thead>
+            <tbody>
+                {data.map(v => (
+                    <tr key={v.id}>
+                        <td><strong>{v.placa || '-'}</strong></td>
+                        <td>{v.marca || '-'} {v.modelo || '-'}</td>
+                        <td>{v.tipo || '-'}</td>
+                        <td>{v.ano || '-'}</td>
+                        <td><strong>{v.km_actual ? v.km_actual.toLocaleString() + ' km' : '0 km'}</strong></td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    );
+}
+
+function TablaDetalleConductores({ data }) {
+    return (
+        <table className="modal-table">
+            <thead>
+                <tr>
+                    <th>Conductor</th>
+                    <th>RUT</th>
+                    <th>Licencia</th>
+                    <th>Vencimiento</th>
+                    <th>Estado</th>
+                    <th>Contacto</th>
+                </tr>
+            </thead>
+            <tbody>
+                {data.map(c => (
+                    <tr key={c.id}>
+                        <td><strong>{c.nombre_completo}</strong></td>
+                        <td><code>{c.rut}</code></td>
+                        <td>{c.licencia_tipo} - {c.licencia_numero}</td>
+                        <td>{formatDate(c.licencia_vencimiento)}</td>
+                        <td><span className="estado-badge">{c.estado}</span></td>
+                        <td><small>{c.telefono}</small></td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    );
+}
+
+function TablaDetalleOrdenes({ data }) {
+    return (
+        <table className="modal-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Vehículo</th>
+                    <th>Conductor</th>
+                    <th>Origen → Destino</th>
+                    <th>Fecha Prog.</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {data.map(o => (
+                    <tr key={o.id}>
+                        <td><strong>#{o.id}</strong></td>
+                        <td><small>{o.vehiculo_info || '-'}</small></td>
+                        <td><small>{o.conductor_nombre || '-'}</small></td>
+                        <td><small>{o.origen} → {o.destino}</small></td>
+                        <td>{formatDate(o.fecha_inicio_programada)}</td>
+                        <td><span className="estado-badge">{o.estado}</span></td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
     );
 }
 

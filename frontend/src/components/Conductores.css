@@ -357,10 +357,13 @@
   inset: 0;
   z-index: 1000;
   display: flex;
-  align-items: center;
+  /* start at top to allow more room and natural scrolling on small viewports */
+  align-items: flex-start;
   justify-content: center;
+  padding: 2rem; /* keep space for scrolling */
   background-color: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
+  overflow-y: auto; /* allow the overlay to scroll if modal is taller than viewport */
   animation: fadeIn 0.2s ease;
 }
 
@@ -374,7 +377,8 @@
   border-radius: var(--border-radius-lg);
   box-shadow: var(--shadow-lg);
   width: 100%;
-  max-height: 90vh;
+  /* allow modal to grow but keep it inside viewport; margin is managed by overlay padding */
+  max-height: calc(100vh - 4rem);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -393,11 +397,12 @@
 }
 
 .modal-small {
-  max-width: 28rem;
+  max-width: 32rem;
 }
 
 .modal-large {
-  max-width: 50rem;
+  /* aumentar ancho para mejorar visualización de formularios en escritorio */
+  max-width: 64rem;
 }
 
 .modal-header-pro {
@@ -479,6 +484,8 @@
   padding: 2rem;
   overflow-y: auto;
   flex: 1;
+  /* garantizar que el body pueda hacer scroll internamente sin salirse del modal */
+  max-height: calc(100vh - 260px);
 }
 
 .modal-error-pro {

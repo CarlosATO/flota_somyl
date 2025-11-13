@@ -74,6 +74,18 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
         </button>
 
         <button 
+          className={`nav-item ${activeModule === 'combustible' ? 'active' : ''}`}
+          onClick={() => onNavigate('combustible')}
+        >
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M3 10h2v7a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-7h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M7 10V7a5 5 0 0 1 10 0v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M12 14v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Combustible
+        </button>
+
+        <button 
           className={`nav-item ${activeModule === 'reportes' ? 'active' : ''}`}
           onClick={() => onNavigate('reportes')}
         >

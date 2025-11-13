@@ -17,6 +17,16 @@ def create_app():
     if SUPABASE_URL and SUPABASE_KEY:
         app.config['SUPABASE'] = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+    # Inicializar cliente Supabase para la base de Proyectos si está configurada
+    PROYECTOS_URL = os.environ.get('PROYECTOS_SUPABASE_URL')
+    PROYECTOS_KEY = os.environ.get('PROYECTOS_SUPABASE_KEY')
+    if PROYECTOS_URL and PROYECTOS_KEY:
+        try:
+            app.config['PROYECTOS_SUPABASE'] = create_client(PROYECTOS_URL, PROYECTOS_KEY)
+            app.logger.info('✅ PROYECTOS_SUPABASE client creado y cacheado')
+        except Exception as e:
+            app.logger.error(f'❌ Error creando PROYECTOS_SUPABASE client: {e}')
+
     @app.route('/api/health', methods=['GET'])
     def health():
         return jsonify({"status": "ok", "message": "API funcionando!"})
@@ -73,6 +83,15 @@ def create_app():
         app.logger.info('✅ Blueprint reportes registrado en /api/reportes')
     except Exception as e:
         app.logger.error(f'❌ Error al registrar reportes: {e}')
+        pass
+
+    # Blueprint Combustible
+    try:
+        from .modules.combustible import bp as combustible_bp
+        app.register_blueprint(combustible_bp, url_prefix='/api/combustible')
+        app.logger.info('✅ Blueprint combustible registrado en /api/combustible')
+    except Exception as e:
+        app.logger.error(f'❌ Error al registrar combustible: {e}')
         pass
 
     # Blueprint Usuarios
