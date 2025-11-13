@@ -217,10 +217,25 @@ def download_adjunto():
         if r.status_code != 200:
             return jsonify({'message': f'Error al descargar archivo (status {r.status_code})'}), 502
 
+        # Sanitizar filename para evitar caracteres no-ASCII en headers HTTP
+        # Usamos ASCII transliteration y luego percent-encoding para filename*
+        try:
+            safe_filename = filename.encode('ascii').decode('ascii')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # Si contiene caracteres no-ASCII, usar solo ASCII seguro y añadir filename* encoded
+            import re
+            from urllib.parse import quote
+            safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+            # RFC 5987: filename*=UTF-8''<percent-encoded-filename>
+            encoded_filename = quote(filename.encode('utf-8'))
+            disposition = f"attachment; filename=\"{safe_filename}\"; filename*=UTF-8''{encoded_filename}"
+        else:
+            disposition = f'attachment; filename="{safe_filename}"'
+
         headers = {
             'Content-Type': r.headers.get('Content-Type', 'application/octet-stream'),
             'Content-Length': r.headers.get('Content-Length') or '',
-            'Content-Disposition': f'attachment; filename="{filename}"'
+            'Content-Disposition': disposition
         }
 
         return Response(stream_with_context(r.iter_content(chunk_size=8192)), headers=headers, status=200)
