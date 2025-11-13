@@ -696,6 +696,10 @@ function Vehiculos({ user, token }) {
     const [showModal, setShowModal] = useState(false);
     const [editingVehicle, setEditingVehicle] = useState(null);
     const [deletingVehicle, setDeletingVehicle] = useState(null);
+    const [attachmentsModalOpen, setAttachmentsModalOpen] = useState(false);
+    const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+    const [attachmentsList, setAttachmentsList] = useState([]);
+    const [preview, setPreview] = useState({ open: false, url: '#', name: '', mime: '' });
     const [submitting, setSubmitting] = useState(false);
     const [formError, setFormError] = useState(null);
 
@@ -768,6 +772,47 @@ function Vehiculos({ user, token }) {
             setSubmitting(false);
         }
     };
+
+    const fetchVehicleAttachments = useCallback(async (vehId) => {
+        if (!vehId) return;
+        setAttachmentsLoading(true);
+        try {
+            const res = await apiFetch(`/api/vehiculos/${vehId}/adjuntos`);
+            if (res && res.status === 200) {
+                setAttachmentsList(res.data.data || []);
+            } else {
+                setAttachmentsList([]);
+                setError(res.data?.message || 'Error cargando adjuntos');
+            }
+        } catch (err) {
+            setAttachmentsList([]);
+            setError('Error de conexión');
+        } finally {
+            setAttachmentsLoading(false);
+        }
+    }, []);
+
+    const openAttachments = (veh) => {
+        setAttachmentsList([]);
+        setAttachmentsModalOpen(true);
+        fetchVehicleAttachments(veh.id);
+    };
+
+    const closeAttachments = () => {
+        setAttachmentsModalOpen(false);
+        setAttachmentsList([]);
+    };
+
+    const openPreview = (adj) => {
+        try {
+            const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path);
+            setPreview({ open: true, url: data.publicUrl || '#', name: adj.nombre_archivo, mime: adj.mime_type });
+        } catch (e) {
+            setPreview({ open: true, url: '#', name: adj.nombre_archivo, mime: adj.mime_type });
+        }
+    };
+
+    const closePreview = () => setPreview({ open: false, url: '#', name: '', mime: '' });
 
     if (!token) {
         return (
@@ -850,6 +895,14 @@ function Vehiculos({ user, token }) {
                                                         🗑️
                                                     </button>
                                                 )}
+                                                {/* Ver adjuntos del vehículo */}
+                                                <button
+                                                    className="btn-icon-pro btn-attach-pro"
+                                                    title="Ver adjuntos"
+                                                    onClick={() => openAttachments(v)}
+                                                >
+                                                    📷
+                                                </button>
                                             </div>
                                         </td>
                                     )}
@@ -885,6 +938,74 @@ function Vehiculos({ user, token }) {
                 message={`¿Estás seguro de eliminar el vehículo ${deletingVehicle?.placa}? Esta acción no se puede deshacer.`} 
                 submitting={submitting} 
             />
+
+            {/* Modal: Adjuntos por vehículo */}
+            {attachmentsModalOpen && (
+                <div className="adjuntos-modal-overlay" onClick={closeAttachments}>
+                    <div className="adjuntos-modal" onClick={(e) => e.stopPropagation()} style={{width: '900px'}}>
+                        <div className="adjuntos-modal-header">
+                            <div>
+                                <strong>Archivos del vehículo</strong>
+                                <div style={{fontSize: '0.85rem', color: '#6b7280'}}>Lista de archivos subidos (documentos, órdenes y mantenimientos)</div>
+                            </div>
+                            <div>
+                                <button onClick={closeAttachments} className="modal-close-btn">Cerrar ✖</button>
+                            </div>
+                        </div>
+                        <div className="adjuntos-modal-body" style={{padding: '1rem'}}>
+                            {attachmentsLoading ? (
+                                <div className="loading-state">Cargando archivos...</div>
+                            ) : attachmentsList.length === 0 ? (
+                                <div className="empty-state-pro">📂 No se encontraron archivos para este vehículo.</div>
+                            ) : (
+                                <div style={{display: 'grid', gap: '0.5rem'}}>
+                                    {attachmentsList.map(adj => (
+                                        <div key={`${adj.tipo_entidad}-${adj.id}`} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem', borderRadius: '6px', background: 'white', border: '1px solid var(--color-border)'}}>
+                                            <div style={{display: 'flex', gap: '0.75rem', alignItems: 'center'}}>
+                                                <div style={{fontSize: '1.4rem'}}>{adj.mime_type?.includes('image') ? '🖼️' : '📄'}</div>
+                                                <div>
+                                                    <div style={{fontWeight: 600}}>{adj.nombre_archivo || adj.storage_path}</div>
+                                                    <div style={{fontSize: '0.82rem', color: '#6b7280'}}>{adj.tipo_entidad} • ID: {adj.entidad_id}</div>
+                                                </div>
+                                            </div>
+                                            <div style={{display: 'flex', gap: '0.5rem'}}>
+                                                <button className="btn btn-primary" onClick={() => openPreview(adj)}>👁️ Ver</button>
+                                                <a className="btn btn-secondary" href={(() => { try { const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path); return data.publicUrl || '#'; } catch(e){ return '#'; } })()} target="_blank" rel="noopener noreferrer">Abrir</a>
+                                                <button className="btn" onClick={() => { const url = (() => { try { const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path); return data.publicUrl || '#'; } catch(e){ return '#'; } })(); const a = document.createElement('a'); a.href = url; a.download = adj.nombre_archivo || ''; document.body.appendChild(a); a.click(); document.body.removeChild(a); }}>⬇️ Descargar</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Preview Modal sencillo */}
+            {preview.open && (
+                <div className="adjuntos-modal-overlay" onClick={closePreview}>
+                    <div className="adjuntos-modal" onClick={(e) => e.stopPropagation()} style={{width: '80%'}}>
+                        <div className="adjuntos-modal-header">
+                            <div><strong>{preview.name}</strong></div>
+                            <div><button onClick={closePreview} className="modal-close-btn">Cerrar ✖</button></div>
+                        </div>
+                        <div className="adjuntos-modal-body">
+                            {preview.mime.includes('image') ? (
+                                <img src={preview.url} alt={preview.name} className="adjuntos-modal-image" />
+                            ) : preview.mime.includes('pdf') ? (
+                                <iframe src={preview.url} className="adjuntos-modal-iframe" title={preview.name} />
+                            ) : (
+                                <div style={{textAlign: 'center'}}>
+                                    <div style={{fontSize: '3rem'}}>📎</div>
+                                    <p>{preview.name}</p>
+                                    <a href={preview.url} target="_blank" rel="noopener noreferrer">Abrir en nueva pestaña</a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

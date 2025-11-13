@@ -471,3 +471,99 @@ def alertas_documentos():
     except Exception as e:
         current_app.logger.error(f"Error obteniendo alertas de documentos: {e}")
         return jsonify({'message': 'Error al obtener alertas de documentos'}), 500
+
+
+@bp.route('/<int:veh_id>/adjuntos', methods=['GET'])
+@auth_required
+def list_vehiculo_adjuntos(veh_id):
+    """Devuelve todos los adjuntos relacionados a un vehículo.
+
+    Recolecta adjuntos de:
+    - Documentos del vehículo (flota_vehiculo_doc_adjuntos)
+    - Adjuntos de órdenes relacionadas al vehículo (flota_orden_adjuntos)
+    - Adjuntos de mantenimientos relacionadas al vehículo (flota_mantenimiento_adjuntos)
+    """
+    supabase = current_app.config.get('SUPABASE')
+    if not supabase:
+        return jsonify({'message': 'Error de configuración: Supabase no disponible'}), 500
+
+    try:
+        all_adjuntos = []
+
+        # 1) Adjuntos de documentos del vehículo
+        try:
+            docs_res = supabase.table('flota_vehiculos_documentos').select('id').eq('vehiculo_id', veh_id).is_('deleted_at', None).execute()
+            doc_ids = [d['id'] for d in (docs_res.data or []) if d.get('id')]
+        except Exception:
+            doc_ids = []
+
+        if doc_ids:
+            try:
+                res_docs_adj = supabase.table('flota_vehiculo_doc_adjuntos').select('id, created_at, nombre_archivo, storage_path, mime_type, documento_id').in_('documento_id', doc_ids).order('created_at', desc=True).execute()
+                for item in res_docs_adj.data or []:
+                    all_adjuntos.append({
+                        'id': item.get('id'),
+                        'created_at': item.get('created_at'),
+                        'nombre_archivo': item.get('nombre_archivo'),
+                        'storage_path': item.get('storage_path'),
+                        'mime_type': item.get('mime_type'),
+                        'tipo_entidad': 'Documento Vehicular',
+                        'entidad_id': item.get('documento_id')
+                    })
+            except Exception:
+                current_app.logger.warning('No se pudieron obtener adjuntos de documentos del vehículo')
+
+        # 2) Adjuntos de órdenes donde la orden pertenece al vehículo
+        try:
+            ordenes_res = supabase.table('flota_ordenes').select('id').eq('vehiculo_id', veh_id).execute()
+            orden_ids = [o['id'] for o in (ordenes_res.data or []) if o.get('id')]
+        except Exception:
+            orden_ids = []
+
+        if orden_ids:
+            try:
+                res_ord_adj = supabase.table('flota_orden_adjuntos').select('id, created_at, nombre_archivo, storage_path, mime_type, orden_id').in_('orden_id', orden_ids).order('created_at', desc=True).execute()
+                for item in res_ord_adj.data or []:
+                    all_adjuntos.append({
+                        'id': item.get('id'),
+                        'created_at': item.get('created_at'),
+                        'nombre_archivo': item.get('nombre_archivo'),
+                        'storage_path': item.get('storage_path'),
+                        'mime_type': item.get('mime_type'),
+                        'tipo_entidad': 'Orden de Servicio',
+                        'entidad_id': item.get('orden_id')
+                    })
+            except Exception:
+                current_app.logger.warning('No se pudieron obtener adjuntos de órdenes para el vehículo')
+
+        # 3) Adjuntos de mantenimientos para el vehículo
+        try:
+            mant_res = supabase.table('flota_mantenimientos').select('id').eq('vehiculo_id', veh_id).execute()
+            mant_ids = [m['id'] for m in (mant_res.data or []) if m.get('id')]
+        except Exception:
+            mant_ids = []
+
+        if mant_ids:
+            try:
+                res_mant_adj = supabase.table('flota_mantenimiento_adjuntos').select('id, created_at, nombre_archivo, storage_path, mime_type, mantenimiento_id').in_('mantenimiento_id', mant_ids).order('created_at', desc=True).execute()
+                for item in res_mant_adj.data or []:
+                    all_adjuntos.append({
+                        'id': item.get('id'),
+                        'created_at': item.get('created_at'),
+                        'nombre_archivo': item.get('nombre_archivo'),
+                        'storage_path': item.get('storage_path'),
+                        'mime_type': item.get('mime_type'),
+                        'tipo_entidad': 'Mantenimiento',
+                        'entidad_id': item.get('mantenimiento_id')
+                    })
+            except Exception:
+                current_app.logger.warning('No se pudieron obtener adjuntos de mantenimientos para el vehículo')
+
+        # Ordenar por fecha y devolver
+        all_adjuntos.sort(key=lambda x: x.get('created_at') or '', reverse=True)
+
+        return jsonify({'data': all_adjuntos, 'meta': {'total': len(all_adjuntos)}})
+
+    except Exception as e:
+        current_app.logger.error(f'Error listando adjuntos del vehículo {veh_id}: {e}')
+        return jsonify({'message': 'Error al obtener adjuntos del vehículo'}), 500
