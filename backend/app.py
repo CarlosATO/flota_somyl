@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from supabase import create_client
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -7,7 +7,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def create_app():
-    app = Flask(__name__)
+    # Si existe un build de Vite en ../frontend/dist, configuramos Flask para servirlo
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    dist_path = os.path.normpath(os.path.join(base_dir, '..', 'frontend', 'dist'))
+    if os.path.isdir(dist_path):
+        app = Flask(__name__, static_folder=dist_path, static_url_path='/')
+        app.logger.info(f'🔷 Servidor en modo producción: sirviendo frontend estático desde {dist_path}')
+    else:
+        app = Flask(__name__)
     CORS(app)
 
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
@@ -111,6 +118,23 @@ def create_app():
     except Exception as e:
         app.logger.error(f'❌ Error al registrar usuarios: {e}')
         pass
+
+    # Servir frontend compilado por Vite (SPA) si existe
+    try:
+        if app.static_folder and os.path.isdir(app.static_folder):
+            @app.route('/', defaults={'path': ''})
+            @app.route('/<path:path>')
+            def serve_frontend(path):
+                # Evitar interferir con rutas de API y Auth
+                if path.startswith('api') or path.startswith('auth'):
+                    return jsonify({'error': 'Not Found'}), 404
+                full_path = os.path.join(app.static_folder, path)
+                if path != '' and os.path.exists(full_path):
+                    return send_from_directory(app.static_folder, path)
+                return send_from_directory(app.static_folder, 'index.html')
+            app.logger.info('🔷 Rutas configuradas para servir SPA desde static_folder')
+    except Exception as e:
+        app.logger.error(f'❌ Error al configurar servidor de frontend estático: {e}')
 
     return app
 
