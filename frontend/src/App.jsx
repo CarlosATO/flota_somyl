@@ -51,6 +51,13 @@ function App(){
     setActiveModule('dashboard')
   }
 
+  // Navegación controlada: mantener dashboard sólo como pantalla inicial.
+  const handleNavigate = (module) => {
+    // Si intentan navegar a 'dashboard' desde la UI, ignorar.
+    if (module === 'dashboard') return
+    setActiveModule(module)
+  }
+
   if (loading) {
     return (
       <div className="loading-screen">
@@ -75,7 +82,7 @@ function App(){
       <TopBar 
         user={user} 
         onLogout={handleLogout} 
-        onNavigate={(m)=>setActiveModule(m)}
+        onNavigate={handleNavigate}
         activeModule={activeModule}
       />
       <main className="main-content">
