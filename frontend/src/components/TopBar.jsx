@@ -96,6 +96,18 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
           Reportes
         </button>
 
+        {/* Submenu desplegable para Reportes */}
+        {activeModule === 'reportes' && (
+          <div className="reportes-submenu">
+            <button
+              className={`submenu-item ${activeModule === 'adjuntos' ? 'active' : ''}`}
+              onClick={() => onNavigate('adjuntos')}
+            >
+              Cons.Documentos
+            </button>
+          </div>
+        )}
+
         <button 
           className={`nav-item ${activeModule === 'usuarios' ? 'active' : ''}`}
           onClick={() => onNavigate('usuarios')}

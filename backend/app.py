@@ -94,6 +94,15 @@ def create_app():
         app.logger.error(f'❌ Error al registrar combustible: {e}')
         pass
 
+    # Blueprint Adjuntos (nuevo módulo)
+    try:
+        from .modules.adjuntos import bp as adjuntos_bp
+        app.register_blueprint(adjuntos_bp, url_prefix='/api/adjuntos')
+        app.logger.info('✅ Blueprint adjuntos registrado en /api/adjuntos')
+    except Exception as e:
+        app.logger.error(f'❌ Error al registrar adjuntos: {e}')
+        pass
+
     # Blueprint Usuarios
     try:
         from .modules.usuarios import bp as usuarios_bp

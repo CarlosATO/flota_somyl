@@ -138,6 +138,35 @@
   border-radius: 2px 2px 0 0;
 }
 
+/* Submenu para Reportes */
+.reportes-submenu {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 0.5rem;
+}
+
+.reportes-submenu .submenu-item {
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #e6eefc;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.reportes-submenu .submenu-item:hover {
+  background: #eef2ff;
+  color: #1e293b;
+}
+
+.reportes-submenu .submenu-item.active {
+  background: #e6f0ff;
+  color: #2563eb;
+  border-color: #cfe0ff;
+}
+
 /* === USUARIO === */
 .topbar-right {
   display: flex;
