@@ -29,9 +29,9 @@ def get_kpis_resumen():
         conductores_res = supabase.table('flota_conductores').select('id', count='exact').is_('deleted_at', None).execute()
         total_conductores = conductores_res.count if conductores_res.count is not None else 0
 
-        # Órdenes de viaje activas (pendientes o asignadas)
-        ordenes_res = supabase.table('flota_ordenes').select('id', count='exact').in_('estado', ['PENDIENTE', 'ASIGNADA']).execute()
-        ordenes_activas = ordenes_res.count if ordenes_res.count is not None else 0
+    # Órdenes activas = todas las que NO están completadas ni canceladas
+    ordenes_res = supabase.table('flota_ordenes').select('id', count='exact').not_.in_('estado', ['completada', 'cancelada']).execute()
+    ordenes_activas = ordenes_res.count if ordenes_res.count is not None else 0
 
         # Mantenimientos pendientes (no completados ni cancelados)
         mantenimientos_res = supabase.table('flota_mantenimientos').select('id', count='exact').in_('estado', ['programado', 'pendiente', 'en_taller']).is_('deleted_at', None).execute()
@@ -237,31 +237,64 @@ def get_licencias_por_vencer():
 @reportes_bp.route('/detalle_vehiculos', methods=['GET'])
 @auth_required
 def get_detalle_vehiculos():
-    """Obtiene listado detallado de vehículos para modal de KPI"""
+    """Obtiene listado detallado de vehículos con KM actual calculado desde órdenes"""
     try:
         supabase = current_app.config.get('SUPABASE')
         if not supabase:
             return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
 
-        # Ajuste: eliminar columna 'kilometraje_actual' que no existe en la tabla
-        query = supabase.table('flota_vehiculos').select(
-            'id, placa, marca, modelo, tipo, estado'
-        ).is_('deleted_at', None).order('placa', desc=False)
+        # 1. Obtener vehículos básicos
+        res_vehiculos = supabase.table('flota_vehiculos').select(
+            'id, placa, marca, modelo, tipo, ano'
+        ).is_('deleted_at', None).order('placa', desc=False).execute()
 
-        res = query.execute()
+        vehiculos = res_vehiculos.data or []
+
+        # 2. Obtener todos los kilometrajes de órdenes
+        res_ordenes = supabase.table('flota_ordenes').select(
+            'vehiculo_id, kilometraje_inicio, kilometraje_fin'
+        ).execute()
+
+        ordenes = res_ordenes.data or []
+
+        # 3. Calcular KM máximo por vehículo
+        km_por_vehiculo = {}
+        for orden in ordenes:
+            vehiculo_id = orden.get('vehiculo_id')
+            if not vehiculo_id:
+                continue
+            
+            km_inicio = orden.get('kilometraje_inicio')
+            km_fin = orden.get('kilometraje_fin')
+            
+            # Encontrar el valor máximo
+            valores = []
+            if km_inicio is not None:
+                try:
+                    valores.append(int(km_inicio))
+                except:
+                    pass
+            if km_fin is not None:
+                try:
+                    valores.append(int(km_fin))
+                except:
+                    pass
+            
+            if valores:
+                km_max = max(valores)
+                if vehiculo_id not in km_por_vehiculo:
+                    km_por_vehiculo[vehiculo_id] = km_max
+                else:
+                    km_por_vehiculo[vehiculo_id] = max(km_por_vehiculo[vehiculo_id], km_max)
+
+        # 4. Agregar KM actual a cada vehículo
+        for vehiculo in vehiculos:
+            vehiculo_id = vehiculo.get('id')
+            vehiculo['km_actual'] = km_por_vehiculo.get(vehiculo_id, 0)
         
-        # Debug logging: mostrar tamaño y ejemplo de filas para investigar errores 500
-        try:
-            rows = res.data or []
-            current_app.logger.info(f'DETALLE_VEHICULOS: filas obtenidas = {len(rows)}')
-            if len(rows) > 0:
-                current_app.logger.info(f'DETALLE_VEHICULOS: ejemplo = {rows[:3]}')
-        except Exception as _log_e:
-            current_app.logger.warning(f'No se pudo loggear res.data: {_log_e}')
-
         return jsonify({
             'status': 'success',
-            'data': res.data or []
+            'data': vehiculos
         }), 200
 
     except Exception as e:
@@ -310,7 +343,7 @@ def get_detalle_ordenes():
 
         query = supabase.table('flota_ordenes').select(
             '*, vehiculo:flota_vehiculos(placa, marca, modelo), conductor:flota_conductores(nombre, apellido)'
-        ).in_('estado', ['PENDIENTE', 'ASIGNADA']).order('fecha_inicio_programada', desc=False)
+        ).not_.in_('estado', ['completada', 'cancelada']).order('fecha_inicio_programada', desc=False)
 
         res = query.execute()
         ordenes = res.data or []
