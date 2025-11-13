@@ -29,9 +29,9 @@ def get_kpis_resumen():
         conductores_res = supabase.table('flota_conductores').select('id', count='exact').is_('deleted_at', None).execute()
         total_conductores = conductores_res.count if conductores_res.count is not None else 0
 
-    # Órdenes activas = todas las que NO están completadas ni canceladas
-    ordenes_res = supabase.table('flota_ordenes').select('id', count='exact').not_.in_('estado', ['completada', 'cancelada']).execute()
-    ordenes_activas = ordenes_res.count if ordenes_res.count is not None else 0
+        # Órdenes activas = todas las que NO están completadas ni canceladas
+        ordenes_res = supabase.table('flota_ordenes').select('id', count='exact').not_.in_('estado', ['completada', 'cancelada']).execute()
+        ordenes_activas = ordenes_res.count if ordenes_res.count is not None else 0
 
         # Mantenimientos pendientes (no completados ni cancelados)
         mantenimientos_res = supabase.table('flota_mantenimientos').select('id', count='exact').in_('estado', ['programado', 'pendiente', 'en_taller']).is_('deleted_at', None).execute()
