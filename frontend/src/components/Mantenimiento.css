@@ -139,24 +139,25 @@
 }
 
 .mantenimiento-table thead th {
-  padding: 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  padding: 1rem 0.75rem;
+  background: #f8fafc;
+  color: #475569;
   font-weight: 600;
   border: none;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
+  border-bottom: 2px solid #cbd5e1;
   white-space: nowrap;
 }
 
 .mantenimiento-table tbody tr {
-  border-bottom: 1px solid var(--color-border);
-  transition: background-color 0.15s ease;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
 }
 
 .mantenimiento-table tbody tr:hover {
-  background-color: #f8f9ff;
+  background-color: #f8fafc;
 }
 
 .mantenimiento-table tbody tr.row-editable {
@@ -165,9 +166,7 @@
 }
 
 .mantenimiento-table tbody tr.row-editable:hover {
-  background-color: #e8f4fd;
-  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
-  transform: translateY(-1px);
+  background-color: #f8fafc;
 }
 
 .mantenimiento-table tbody tr.row-readonly {
@@ -176,15 +175,14 @@
 }
 
 .mantenimiento-table tbody tr.row-readonly:hover {
-  background-color: #f8f9fa;
-  box-shadow: none;
-  transform: none;
+  background-color: #f8fafc;
 }
 
 .mantenimiento-table tbody td {
-  padding: 1rem;
+  padding: 0.875rem 0.75rem;
   color: var(--color-text-dark);
   vertical-align: middle;
+  font-size: 0.9375rem;
   white-space: nowrap;
 }
 
@@ -210,8 +208,9 @@
 .badge-mant-placa {
   display: inline-block;
   padding: 0.375rem 0.75rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #cbd5e1;
   border-radius: 0.25rem;
   font-weight: 700;
   font-size: 0.85rem;
@@ -222,48 +221,59 @@
 .badge-mant-tipo {
   display: inline-block;
   padding: 0.25rem 0.75rem;
-  border-radius: 1rem;
-  font-size: 0.8rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid;
 }
 
 .badge-tipo-preventivo {
   background-color: #d1ecf1;
   color: #0c5460;
+  border-color: #17a2b8;
 }
 .badge-tipo-correctivo {
-  background-color: #fff3cd;
-  color: #856404;
+  background-color: #fef3c7;
+  color: #92400e;
+  border-color: #f59e0b;
 }
 
 .badge-mant-estado {
   display: inline-block;
   padding: 0.25rem 0.75rem;
-  border-radius: 1rem;
-  font-size: 0.8rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid;
 }
 .badge-estado-pendiente {
-  background-color: #f8d7da;
-  color: #721c24;
+  background-color: #fee2e2;
+  color: #991b1b;
+  border-color: #ef4444;
 }
 .badge-estado-programado {
-  background-color: #fff333; /* Amarillo más brillante */
-  color: #665000;
+  background-color: #fef3c7;
+  color: #92400e;
+  border-color: #f59e0b;
 }
 .badge-estado-en_taller {
-  background-color: #cce5ff;
-  color: #004085;
+  background-color: #dbeafe;
+  color: #1e40af;
+  border-color: #3b82f6;
 }
 .badge-estado-finalizado {
-  background-color: #d4edda;
-  color: #155724;
+  background-color: #d1fae5;
+  color: #065f46;
+  border-color: #10b981;
 }
 .badge-estado-cancelado {
-  background-color: #e2e3e5;
-  color: #383d41;
+  background-color: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
 }
 
 

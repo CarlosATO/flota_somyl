@@ -89,10 +89,30 @@ function App(){
         {activeModule === 'conductores' && <Conductores user={user} token={token} />}
         {activeModule === 'viajes' && <Ordenes user={user} token={token} />}
         {activeModule === 'mantenimiento' && <Mantenimiento user={user} token={token} />}
-  {activeModule === 'reportes' && <Reportes user={user} token={token} />}
-  {activeModule === 'combustible' && <Combustible user={user} token={token} />}
-  {activeModule === 'adjuntos' && <Adjuntos user={user} token={token} />}
-  {activeModule === 'usuarios' && <Usuarios user={user} token={token} />}
+        {activeModule === 'combustible' && <Combustible user={user} token={token} />}
+        {activeModule === 'usuarios' && <Usuarios user={user} token={token} />}
+        
+        {/* Reportes - Vista principal */}
+        {activeModule === 'reportes' && <Reportes user={user} token={token} />}
+        
+        {/* Reportes - Cons. Documentos */}
+        {activeModule === 'reportes-documentos' && <Adjuntos user={user} token={token} />}
+        
+        {/* Reportes - Análisis de Flota (Por ahora muestra Reportes, puedes crear componente nuevo) */}
+        {activeModule === 'reportes-flota' && (
+          <div className="dashboard-welcome">
+            <h2>Análisis de Flota</h2>
+            <p>Módulo en desarrollo...</p>
+          </div>
+        )}
+        
+        {/* Reportes - Mantenimientos (Por ahora muestra mensaje, puedes crear componente nuevo) */}
+        {activeModule === 'reportes-mantenimientos' && (
+          <div className="dashboard-welcome">
+            <h2>Reportes de Mantenimientos</h2>
+            <p>Módulo en desarrollo...</p>
+          </div>
+        )}
       </main>
     </div>
   )

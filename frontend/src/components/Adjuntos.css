@@ -90,30 +90,32 @@
 }
 
 .adjuntos-table thead th {
-  padding: 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  padding: 1rem 0.75rem;
+  background: #f8fafc;
+  color: #475569;
   font-weight: 600;
   border: none;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
+  border-bottom: 2px solid #cbd5e1;
   white-space: nowrap;
 }
 
 .adjuntos-table tbody tr {
-  border-bottom: 1px solid var(--color-border);
-  transition: background-color 0.15s ease;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
 }
 
 .adjuntos-table tbody tr:hover {
-  background-color: #f8f9ff;
+  background-color: #f8fafc;
 }
 
 .adjuntos-table tbody td {
-  padding: 1rem;
+  padding: 0.875rem 0.75rem;
   color: var(--color-text-dark);
   vertical-align: middle;
+  font-size: 0.9375rem;
   white-space: nowrap;
 }
 
@@ -128,21 +130,24 @@
 .badge-adjunto {
     display: inline-block;
     padding: 0.2rem 0.5rem;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     width: fit-content;
+    border: 1px solid;
 }
 
 .badge-adjunto-image {
-    background-color: #e3f2fd; /* azul claro */
+    background-color: #dbeafe;
     color: #1e40af;
+    border-color: #3b82f6;
 }
 
 .badge-adjunto-doc {
-    background-color: #fcebeb; /* rojo claro */
+    background-color: #fee2e2;
     color: #991b1b;
+    border-color: #ef4444;
 }
 /* Reuso de estilos de estado/loading */
 .loading-state, .empty-state-pro, .alert-error-pro {
