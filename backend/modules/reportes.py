@@ -250,6 +250,15 @@ def get_detalle_vehiculos():
 
         res = query.execute()
         
+        # Debug logging: mostrar tamaño y ejemplo de filas para investigar errores 500
+        try:
+            rows = res.data or []
+            current_app.logger.info(f'DETALLE_VEHICULOS: filas obtenidas = {len(rows)}')
+            if len(rows) > 0:
+                current_app.logger.info(f'DETALLE_VEHICULOS: ejemplo = {rows[:3]}')
+        except Exception as _log_e:
+            current_app.logger.warning(f'No se pudo loggear res.data: {_log_e}')
+
         return jsonify({
             'status': 'success',
             'data': res.data or []
