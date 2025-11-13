@@ -971,7 +971,27 @@ function Vehiculos({ user, token }) {
                                             <div style={{display: 'flex', gap: '0.5rem'}}>
                                                 <button className="btn btn-primary" onClick={() => openPreview(adj)}>👁️ Ver</button>
                                                 <a className="btn btn-secondary" href={(() => { try { const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path); return data.publicUrl || '#'; } catch(e){ return '#'; } })()} target="_blank" rel="noopener noreferrer">Abrir</a>
-                                                <button className="btn" onClick={() => { window.open(`/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`, '_self'); }}>⬇️ Descargar</button>
+                                                <button className="btn" onClick={async () => { 
+                                                    try {
+                                                        const token = localStorage.getItem('token');
+                                                        const res = await fetch(`/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`, {
+                                                            headers: { 'Authorization': `Bearer ${token}` }
+                                                        });
+                                                        if (res.ok) {
+                                                            const blob = await res.blob();
+                                                            const url = window.URL.createObjectURL(blob);
+                                                            const a = document.createElement('a');
+                                                            a.href = url;
+                                                            a.download = adj.nombre_archivo || 'file';
+                                                            document.body.appendChild(a);
+                                                            a.click();
+                                                            document.body.removeChild(a);
+                                                            window.URL.revokeObjectURL(url);
+                                                        } else {
+                                                            alert('Error al descargar archivo');
+                                                        }
+                                                    } catch(e) { alert('Error de conexión'); }
+                                                }}>⬇️ Descargar</button>
                                             </div>
                                         </div>
                                     ))}

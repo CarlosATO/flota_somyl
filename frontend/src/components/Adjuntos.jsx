@@ -110,16 +110,35 @@ function Adjuntos({ token }) {
         return () => window.removeEventListener('keydown', onKey);
     }, [modalOpen]);
 
-    const downloadAdjunto = (adj) => {
-        const url = getPublicUrl(adj.storage_path);
-        // Create a temporary anchor to trigger download
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = adj.nombre_archivo || '';
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+    const downloadAdjunto = async (adj) => {
+        try {
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || 'file')}`;
+            const token = localStorage.getItem('token');
+            
+            const res = await fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (res.ok) {
+                const blob = await res.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = adj.nombre_archivo || 'file';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(downloadUrl);
+            } else {
+                const errorText = await res.text();
+                alert(`Error al descargar: ${errorText || 'Error desconocido'}`);
+            }
+        } catch (err) {
+            console.error('Error descargando archivo:', err);
+            alert('Error de conexión al intentar descargar el archivo');
+        }
     };
 
     return (
