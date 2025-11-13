@@ -33,8 +33,8 @@ def get_kpis_resumen():
         ordenes_res = supabase.table('flota_ordenes').select('id', count='exact').not_.in_('estado', ['completada', 'cancelada']).execute()
         ordenes_activas = ordenes_res.count if ordenes_res.count is not None else 0
 
-        # Mantenimientos pendientes (no completados ni cancelados)
-        mantenimientos_res = supabase.table('flota_mantenimientos').select('id', count='exact').in_('estado', ['programado', 'pendiente', 'en_taller']).is_('deleted_at', None).execute()
+    # Mantenimientos pendientes (no completados ni cancelados) - estados en mayúsculas
+    mantenimientos_res = supabase.table('flota_mantenimientos').select('id', count='exact').in_('estado', ['PROGRAMADO', 'PENDIENTE', 'EN_TALLER']).is_('deleted_at', None).execute()
         mantenimientos_pendientes = mantenimientos_res.count if mantenimientos_res.count is not None else 0
 
         return jsonify({
