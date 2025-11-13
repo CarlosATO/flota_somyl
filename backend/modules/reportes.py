@@ -243,9 +243,9 @@ def get_detalle_vehiculos():
         if not supabase:
             return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
 
-        # Cambio: sin ano, con año si existe en tu tabla
+        # Ajuste: eliminar columna 'kilometraje_actual' que no existe en la tabla
         query = supabase.table('flota_vehiculos').select(
-            'id, placa, marca, modelo, tipo, kilometraje_actual, estado'
+            'id, placa, marca, modelo, tipo, estado'
         ).is_('deleted_at', None).order('placa', desc=False)
 
         res = query.execute()
