@@ -495,3 +495,6 @@ def get_ordenes_conductor_activas():
     except Exception as e:
         current_app.logger.error(f"Error al buscar órdenes de conductor: {e}")
         return jsonify({'message': 'Error inesperado al buscar órdenes'}), 500 
+
+# Nota inofensiva para forzar redeploy en el hosting: no-op, sin efecto en la lógica
+# redeploy-trigger: comentario harmless para reinicio
