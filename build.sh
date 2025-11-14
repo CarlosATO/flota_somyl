@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+echo "=== Installing Python dependencies ==="
+pip install -r requirements.txt
+
 echo "=== Building Frontend ==="
 cd frontend
 npm ci
