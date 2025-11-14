@@ -4,22 +4,25 @@ FROM nikolaik/python-nodejs:python3.11-nodejs18
 # Establecer directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias
+# Copiar archivos de dependencias de Python
 COPY requirements.txt ./
-COPY frontend/package*.json ./frontend/
 
 # Instalar dependencias de Python
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copiar archivos del frontend
+COPY frontend/ ./frontend/
+
 # Instalar dependencias de Node y construir frontend
 WORKDIR /app/frontend
-RUN npm ci
-COPY frontend/ ./
+RUN npm install
 RUN npm run build
 
-# Volver al directorio principal y copiar todo
+# Volver al directorio principal y copiar el backend
 WORKDIR /app
-COPY . .
+COPY backend/ ./backend/
+COPY run.py ./
+COPY Procfile ./
 
 # Exponer puerto
 EXPOSE 8080
