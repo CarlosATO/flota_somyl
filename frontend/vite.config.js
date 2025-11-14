@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Force rebuild with environment variables
 export default defineConfig({
   plugins: [react()],
   build: {
