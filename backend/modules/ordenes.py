@@ -473,7 +473,7 @@ def get_ordenes_conductor_activas():
         res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
         
         if not res_conductor.data:
-            return jsonify({'message': f'No se encontró un perfil de conductor para el RUT {conductor_rut}'}), 404
+            return jsonify({'message': 'Su usuario no está creado como conductor. Favor solicite su creación al administrador.'}), 404
             
         conductor_id_flota = res_conductor.data[0]['id']
 
