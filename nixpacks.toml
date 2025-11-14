@@ -9,8 +9,10 @@ cmds = [
     'cd frontend',
     'npm ci',
     'npm run build',
-    'cd ..'
+    'ls -la dist',
+    'cd ..',
+    'ls -la frontend/dist'
 ]
 
 [start]
-cmd = 'gunicorn backend.app:app --workers 4 --bind 0.0.0.0:$PORT'
+cmd = 'gunicorn backend.app:app --workers 4 --bind 0.0.0.0:$PORT --log-level=debug'

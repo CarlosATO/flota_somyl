@@ -10,11 +10,19 @@ def create_app():
     # Si existe un build de Vite en ../frontend/dist, configuramos Flask para servirlo
     base_dir = os.path.abspath(os.path.dirname(__file__))
     dist_path = os.path.normpath(os.path.join(base_dir, '..', 'frontend', 'dist'))
+    
+    print(f"Base dir: {base_dir}")
+    print(f"Looking for dist at: {dist_path}")
+    print(f"Dist exists: {os.path.isdir(dist_path)}")
     if os.path.isdir(dist_path):
-        app = Flask(__name__, static_folder=dist_path, static_url_path='/')
+        print(f"Dist contents: {os.listdir(dist_path)}")
+    
+    if os.path.isdir(dist_path):
+        app = Flask(__name__, static_folder=dist_path, static_url_path='')
         app.logger.info(f'🔷 Servidor en modo producción: sirviendo frontend estático desde {dist_path}')
     else:
         app = Flask(__name__)
+        app.logger.warning(f'⚠️ No se encontró el directorio dist en {dist_path}')
     CORS(app)
 
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
@@ -120,21 +128,26 @@ def create_app():
         pass
 
     # Servir frontend compilado por Vite (SPA) si existe
-    try:
-        if app.static_folder and os.path.isdir(app.static_folder):
-            @app.route('/', defaults={'path': ''})
-            @app.route('/<path:path>')
-            def serve_frontend(path):
-                # Evitar interferir con rutas de API y Auth
-                if path.startswith('api') or path.startswith('auth'):
-                    return jsonify({'error': 'Not Found'}), 404
-                full_path = os.path.join(app.static_folder, path)
-                if path != '' and os.path.exists(full_path):
-                    return send_from_directory(app.static_folder, path)
-                return send_from_directory(app.static_folder, 'index.html')
-            app.logger.info('🔷 Rutas configuradas para servir SPA desde static_folder')
-    except Exception as e:
-        app.logger.error(f'❌ Error al configurar servidor de frontend estático: {e}')
+    if app.static_folder and os.path.isdir(app.static_folder):
+        @app.route('/', defaults={'path': ''})
+        @app.route('/<path:path>')
+        def serve_frontend(path):
+            # Evitar interferir con rutas de API y Auth
+            if path.startswith('api/') or path.startswith('auth/'):
+                return jsonify({'error': 'Not Found'}), 404
+            
+            # Si es un archivo estático (css, js, etc), intentar servirlo
+            full_path = os.path.join(app.static_folder, path)
+            if path and os.path.isfile(full_path):
+                return send_from_directory(app.static_folder, path)
+            
+            # Para cualquier otra ruta, servir index.html (SPA routing)
+            return send_from_directory(app.static_folder, 'index.html')
+        
+        app.logger.info('🔷 Rutas configuradas para servir SPA desde static_folder')
+        app.logger.info(f'🔷 Static folder: {app.static_folder}')
+    else:
+        app.logger.warning('⚠️ No se configuraron rutas de frontend (static_folder no existe)')
 
     return app
 
