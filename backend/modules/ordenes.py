@@ -496,5 +496,82 @@ def get_ordenes_conductor_activas():
         current_app.logger.error(f"Error al buscar órdenes de conductor: {e}")
         return jsonify({'message': 'Error inesperado al buscar órdenes'}), 500 
 
-# Nota inofensiva para forzar redeploy en el hosting: no-op, sin efecto en la lógica
-# redeploy-trigger: comentario harmless para reinicio
+# --- RUTA PARA APP MÓVIL: INICIAR VIAJE ---
+
+@bp.route('/<int:orden_id>/iniciar', methods=['POST'])
+@auth_required
+def iniciar_viaje_conductor(orden_id):
+    """
+    [APP MOVIL] Permite al conductor autenticado iniciar un viaje (Orden).
+    Cambia el estado de 'asignada' a 'en_curso' y registra la fecha de inicio real.
+    """
+    supabase = current_app.config.get('SUPABASE')
+    user = g.get('current_user') # Usuario de flota_usuarios
+    
+    if (user.get('cargo') or '').lower() != 'conductor':
+        return jsonify({'message': 'Acceso denegado. Solo conductores.'}), 403
+
+    # --- 1. Verificar el conductor (usando el RUT) ---
+    try:
+        conductor_rut = user.get('rut')
+        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
+        if not res_conductor.data:
+            return jsonify({'message': 'Su usuario no está creado como conductor. Favor solicite su creación al administrador.'}), 404
+        conductor_id_flota = res_conductor.data[0]['id']
+    except Exception as e:
+        current_app.logger.error(f"Error buscando ID de conductor por RUT: {e}")
+        return jsonify({'message': 'Error interno al verificar conductor'}), 500
+
+    # --- 2. Obtener la orden ---
+    try:
+        res_orden = supabase.table('flota_ordenes').select('*').eq('id', orden_id).limit(1).execute()
+        if not res_orden.data:
+            return jsonify({'message': 'Orden no encontrada'}), 404
+        orden = res_orden.data[0]
+    except Exception as e:
+        return jsonify({'message': 'Error al buscar la orden'}), 500
+
+    # --- 3. Validar permisos y estado ---
+    if orden.get('conductor_id') != conductor_id_flota:
+        return jsonify({'message': 'No tiene permiso para iniciar esta orden (no está asignada a usted).'}), 403
+        
+    if orden.get('estado') != 'asignada':
+        return jsonify({'message': f'No se puede iniciar. El estado actual es "{orden.get("estado")}".'}), 400
+
+    # --- 4. Recibir datos (Kilometraje inicial opcional) ---
+    payload = request.get_json() or {}
+    km_inicio = payload.get('kilometraje_inicio')
+    
+    updates = {
+        'estado': 'en_curso', # ¡NUEVO ESTADO!
+        'fecha_inicio_real': datetime.now().isoformat() # Fecha y hora actual
+    }
+    
+    if km_inicio and int(km_inicio) > 0:
+        updates['kilometraje_inicio'] = int(km_inicio)
+    
+    # --- 5. Actualizar la orden ---
+    try:
+        # Usamos .execute() al final
+        res_update = supabase.table('flota_ordenes').update(updates).eq('id', orden_id).execute()
+        
+        if res_update.data:
+            # Registrar en historial (usando la función que ya existe en ordenes.py)
+            _registrar_cambio_estado(
+                orden_id,
+                'asignada',
+                'en_curso',
+                user.get('id'), # ID del usuario (flota_usuarios)
+                'Viaje iniciado desde App Móvil'
+            )
+            return jsonify({'data': res_update.data[0], 'message': 'Viaje iniciado correctamente'}), 200
+        else:
+            return jsonify({'message': 'No se pudo actualizar la orden'}), 500
+            
+    except Exception as e:
+        current_app.logger.error(f"Error al iniciar viaje: {e}")
+        return jsonify({'message': 'Error inesperado al iniciar el viaje'}), 500
+
+# (Puedes añadir un comentario final si quieres forzar el deploy,
+# pero añadir esta función ya es un cambio grande)
+# FORZAR RE-DEPLOY V3
