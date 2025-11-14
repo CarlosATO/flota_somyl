@@ -496,7 +496,7 @@ def get_ordenes_conductor_activas():
         current_app.logger.error(f"Error al buscar órdenes de conductor: {e}")
         return jsonify({'message': 'Error inesperado al buscar órdenes'}), 500 
 
-# --- RUTA PARA APP MÓVIL: INICIAR VIAJE (VERSIÓN 3 - ACEPTA OBSERVACIONES) ---
+# --- RUTA PARA APP MÓVIL: INICIAR VIAJE ---
 
 @bp.route('/<int:orden_id>/iniciar', methods=['POST'])
 @auth_required
@@ -504,7 +504,6 @@ def iniciar_viaje_conductor(orden_id):
     """
     [APP MOVIL] Permite al conductor autenticado iniciar un viaje (Orden).
     Cambia el estado de 'asignada' a 'en_curso' y registra la fecha de inicio real.
-    Acepta 'kilometraje_inicio' y 'observacion_inicio'.
     """
     supabase = current_app.config.get('SUPABASE')
     user = g.get('current_user') # Usuario de flota_usuarios
@@ -520,6 +519,7 @@ def iniciar_viaje_conductor(orden_id):
             return jsonify({'message': 'Su usuario no está creado como conductor. Favor solicite su creación al administrador.'}), 404
         conductor_id_flota = res_conductor.data[0]['id']
     except Exception as e:
+        current_app.logger.error(f"Error buscando ID de conductor por RUT: {e}")
         return jsonify({'message': 'Error interno al verificar conductor'}), 500
 
     # --- 2. Obtener la orden ---
@@ -538,36 +538,31 @@ def iniciar_viaje_conductor(orden_id):
     if orden.get('estado') != 'asignada':
         return jsonify({'message': f'No se puede iniciar. El estado actual es "{orden.get("estado")}".'}), 400
 
-    # --- 4. Recibir datos (KM y Observaciones de Inicio) ---
+    # --- 4. Recibir datos (Kilometraje inicial opcional) ---
     payload = request.get_json() or {}
     km_inicio = payload.get('kilometraje_inicio')
-    observacion_inicio = payload.get('observacion_inicio', '').strip() # ¡NUEVO!
     
     updates = {
-        'estado': 'en_curso', # Nuevo estado
+        'estado': 'en_curso', # ¡NUEVO ESTADO!
         'fecha_inicio_real': datetime.now().isoformat() # Fecha y hora actual
     }
     
     if km_inicio and int(km_inicio) > 0:
         updates['kilometraje_inicio'] = int(km_inicio)
     
-    # ¡NUEVO! Lógica para añadir observación de inicio
-    if observacion_inicio:
-        obs_originales = orden.get('observaciones') or ''
-        # Añadimos la nueva observación al principio
-        updates['observaciones'] = f"[INICIO CONDUCTOR]: {observacion_inicio}\n\n-----\n\n{obs_originales}".strip()
-    
     # --- 5. Actualizar la orden ---
     try:
+        # Usamos .execute() al final
         res_update = supabase.table('flota_ordenes').update(updates).eq('id', orden_id).execute()
         
         if res_update.data:
+            # Registrar en historial (usando la función que ya existe en ordenes.py)
             _registrar_cambio_estado(
                 orden_id,
                 'asignada',
                 'en_curso',
-                user.get('id'),
-                f'Viaje iniciado desde App Móvil (Obs: {observacion_inicio[:20]}...)'
+                user.get('id'), # ID del usuario (flota_usuarios)
+                'Viaje iniciado desde App Móvil'
             )
             return jsonify({'data': res_update.data[0], 'message': 'Viaje iniciado correctamente'}), 200
         else:
@@ -575,7 +570,8 @@ def iniciar_viaje_conductor(orden_id):
             
     except Exception as e:
         current_app.logger.error(f"Error al iniciar viaje: {e}")
-        return jsonify({'message': 'Error inesperado al iniciar el viaje'}), 500 
+        return jsonify({'message': 'Error inesperado al iniciar el viaje'}), 500
+
 # --- RUTA PARA APP MÓVIL: VER VIAJES EN CURSO ---
 
 @bp.route('/conductor/en_curso', methods=['GET'])
@@ -615,7 +611,7 @@ def get_ordenes_conductor_en_curso():
         current_app.logger.error(f"Error al buscar órdenes en curso: {e}")
         return jsonify({'message': 'Error inesperado al buscar órdenes en curso'}), 500
 
-# --- RUTA PARA APP MÓVIL: FINALIZAR VIAJE ---
+# --- RUTA PARA APP MÓVIL: FINALIZAR VIAJE (CON MODAL) ---
 
 @bp.route('/<int:orden_id>/finalizar', methods=['POST'])
 @auth_required
@@ -623,7 +619,8 @@ def finalizar_viaje_conductor(orden_id):
     """
     [APP MOVIL] Permite al conductor finalizar un viaje (Orden).
     Cambia el estado de 'en_curso' a 'completada'.
-    Requiere 'kilometraje_fin' en el body.
+    Requiere 'kilometraje_fin' y 'fecha_fin_real' en el body.
+    Acepta 'observaciones'.
     """
     supabase = current_app.config.get('SUPABASE')
     user = g.get('current_user')
@@ -657,24 +654,36 @@ def finalizar_viaje_conductor(orden_id):
     if orden.get('estado') != 'en_curso':
         return jsonify({'message': f'No se puede finalizar. El estado actual es "{orden.get("estado")}".'}), 400
 
-    # --- 4. Recibir datos (Kilometraje final OBLIGATORIO) ---
+    # --- 4. Recibir datos (KM, Fecha y Notas) ---
     payload = request.get_json() or {}
     km_fin = payload.get('kilometraje_fin')
+    fecha_fin = payload.get('fecha_fin_real') # La app debe enviar esto
+    observaciones_conductor = payload.get('observaciones', '') # Notas del conductor
     
-    if not km_fin or int(km_fin) <= 0:
-        return jsonify({'message': 'El Kilometraje Final es obligatorio y debe ser un número positivo.'}), 400
+    if not km_fin or not fecha_fin:
+        return jsonify({'message': 'El Kilometraje Final y la Fecha de Fin son obligatorios.'}), 400
     
-    km_fin_int = int(km_fin)
+    try:
+        km_fin_int = int(km_fin)
+        fecha_fin_iso = _safe_datetime(fecha_fin) # Usamos el helper
+        if not fecha_fin_iso:
+             return jsonify({'message': 'El formato de la Fecha de Fin no es válido (use YYYY-MM-DDTHH:MM)'}), 400
+    except ValueError:
+        return jsonify({'message': 'El Kilometraje Final debe ser un número.'}), 400
     
-    # Validar que KM Fin sea mayor que KM Inicio (si existe)
     km_inicio = orden.get('kilometraje_inicio')
     if km_inicio and km_fin_int <= int(km_inicio):
         return jsonify({'message': f'KM Fin ({km_fin_int}) debe ser mayor que el KM Inicio ({km_inicio}).'}), 400
 
+    # Combinar observaciones
+    obs_originales = orden.get('observaciones') or ''
+    nuevas_observaciones = f"{obs_originales}\n\n[CIERRE CONDUCTOR]: {observaciones_conductor}".strip()
+
     updates = {
-        'estado': 'completada', # ¡ESTADO FINAL!
-        'fecha_fin_real': datetime.now().isoformat(), # Fecha y hora actual
-        'kilometraje_fin': km_fin_int
+        'estado': 'completada',
+        'fecha_fin_real': fecha_fin_iso, # Usamos la fecha enviada por la app
+        'kilometraje_fin': km_fin_int,
+        'observaciones': nuevas_observaciones
     }
     
     # --- 5. Actualizar la orden ---
@@ -696,6 +705,5 @@ def finalizar_viaje_conductor(orden_id):
     except Exception as e:
         current_app.logger.error(f"Error al finalizar viaje: {e}")
         return jsonify({'message': 'Error inesperado al finalizar el viaje'}), 500
-# (Puedes añadir un comentario final si quieres forzar el deploy,
-# pero añadir esta función ya es un cambio grande)
-# FORZAR RE-DEPLOY V3
+
+# FORZAR RE-DEPLOY V5
