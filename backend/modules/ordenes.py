@@ -441,3 +441,57 @@ def alertas_licencias():
     except Exception as e:
         current_app.logger.error(f"Error obteniendo alertas: {e}")
         return jsonify({'message': 'Error al obtener alertas'}), 500
+
+
+# --- RUTA PARA APP MÓVIL CONDUCTOR ---
+
+@bp.route('/conductor/activas', methods=['GET'])
+@auth_required
+def get_ordenes_conductor_activas():
+    """
+    [APP MOVIL] Obtiene las órdenes activas (asignadas) para el conductor
+    autenticado (obtenido desde el token JWT).
+    """
+    supabase = current_app.config.get('SUPABASE')
+    user = g.get('current_user') # Esto viene de flota_usuarios
+    
+    if not user:
+        return jsonify({'message': 'Error de autenticación, usuario no encontrado'}), 401
+    
+    # Verificamos que el usuario logueado sea un conductor
+    if (user.get('cargo') or '').lower() != 'conductor':
+        return jsonify({'message': 'Acceso denegado. Este endpoint es solo para conductores.'}), 403
+
+    # --- Lógica de Búsqueda Segura ---
+    # Usamos el RUT del usuario logueado (flota_usuarios) para encontrar 
+    # su ID correspondiente en la tabla de conductores (flota_conductores).
+    try:
+        conductor_rut = user.get('rut')
+        if not conductor_rut:
+            return jsonify({'message': 'El usuario no tiene RUT asignado'}), 400
+            
+        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
+        
+        if not res_conductor.data:
+            return jsonify({'message': f'No se encontró un perfil de conductor para el RUT {conductor_rut}'}), 404
+            
+        conductor_id_flota = res_conductor.data[0]['id']
+
+    except Exception as e:
+        current_app.logger.error(f"Error buscando ID de conductor por RUT: {e}")
+        return jsonify({'message': 'Error interno al verificar conductor'}), 500
+    
+    # --- Búsqueda de Órdenes ---
+    try:
+        # Buscamos órdenes ASIGNADAS para este conductor_id_flota
+        res = supabase.table('flota_ordenes').select(
+            "*, vehiculo:flota_vehiculos(placa, marca, modelo)"
+        ).eq('conductor_id', conductor_id_flota).eq('estado', 'asignada').order('fecha_inicio_programada', desc=False).execute()
+        
+        data = res.data or []
+        
+        return jsonify({'data': data}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error al buscar órdenes de conductor: {e}")
+        return jsonify({'message': 'Error inesperado al buscar órdenes'}), 500 
