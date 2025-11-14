@@ -571,7 +571,126 @@ def iniciar_viaje_conductor(orden_id):
     except Exception as e:
         current_app.logger.error(f"Error al iniciar viaje: {e}")
         return jsonify({'message': 'Error inesperado al iniciar el viaje'}), 500
+# --- RUTA PARA APP MÓVIL: VER VIAJES EN CURSO ---
 
+@bp.route('/conductor/en_curso', methods=['GET'])
+@auth_required
+def get_ordenes_conductor_en_curso():
+    """
+    [APP MOVIL] Obtiene las órdenes en estado 'en_curso' para el conductor
+    autenticado.
+    """
+    supabase = current_app.config.get('SUPABASE')
+    user = g.get('current_user') # Usuario de flota_usuarios
+    
+    if (user.get('cargo') or '').lower() != 'conductor':
+        return jsonify({'message': 'Acceso denegado. Solo conductores.'}), 403
+
+    # --- 1. Verificar el conductor (usando el RUT) ---
+    try:
+        conductor_rut = user.get('rut')
+        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
+        if not res_conductor.data:
+            return jsonify({'message': 'Su usuario no está creado como conductor.'}), 404
+        conductor_id_flota = res_conductor.data[0]['id']
+    except Exception as e:
+        return jsonify({'message': 'Error interno al verificar conductor'}), 500
+    
+    # --- 2. Búsqueda de Órdenes "en_curso" ---
+    try:
+        res = supabase.table('flota_ordenes').select(
+            "*, vehiculo:flota_vehiculos(placa, marca, modelo)"
+        ).eq('conductor_id', conductor_id_flota).eq('estado', 'en_curso').order('fecha_inicio_real', desc=True).execute() # Ordenar por inicio real
+        
+        data = res.data or []
+        
+        return jsonify({'data': data}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error al buscar órdenes en curso: {e}")
+        return jsonify({'message': 'Error inesperado al buscar órdenes en curso'}), 500
+
+# --- RUTA PARA APP MÓVIL: FINALIZAR VIAJE ---
+
+@bp.route('/<int:orden_id>/finalizar', methods=['POST'])
+@auth_required
+def finalizar_viaje_conductor(orden_id):
+    """
+    [APP MOVIL] Permite al conductor finalizar un viaje (Orden).
+    Cambia el estado de 'en_curso' a 'completada'.
+    Requiere 'kilometraje_fin' en el body.
+    """
+    supabase = current_app.config.get('SUPABASE')
+    user = g.get('current_user')
+    
+    if (user.get('cargo') or '').lower() != 'conductor':
+        return jsonify({'message': 'Acceso denegado. Solo conductores.'}), 403
+
+    # --- 1. Verificar el conductor ---
+    try:
+        conductor_rut = user.get('rut')
+        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
+        if not res_conductor.data:
+            return jsonify({'message': 'Perfil de conductor no encontrado.'}), 404
+        conductor_id_flota = res_conductor.data[0]['id']
+    except Exception as e:
+        return jsonify({'message': 'Error interno al verificar conductor'}), 500
+
+    # --- 2. Obtener la orden ---
+    try:
+        res_orden = supabase.table('flota_ordenes').select('*').eq('id', orden_id).limit(1).execute()
+        if not res_orden.data:
+            return jsonify({'message': 'Orden no encontrada'}), 404
+        orden = res_orden.data[0]
+    except Exception as e:
+        return jsonify({'message': 'Error al buscar la orden'}), 500
+
+    # --- 3. Validar permisos y estado ---
+    if orden.get('conductor_id') != conductor_id_flota:
+        return jsonify({'message': 'No tiene permiso para finalizar esta orden (no está asignada a usted).'}), 403
+        
+    if orden.get('estado') != 'en_curso':
+        return jsonify({'message': f'No se puede finalizar. El estado actual es "{orden.get("estado")}".'}), 400
+
+    # --- 4. Recibir datos (Kilometraje final OBLIGATORIO) ---
+    payload = request.get_json() or {}
+    km_fin = payload.get('kilometraje_fin')
+    
+    if not km_fin or int(km_fin) <= 0:
+        return jsonify({'message': 'El Kilometraje Final es obligatorio y debe ser un número positivo.'}), 400
+    
+    km_fin_int = int(km_fin)
+    
+    # Validar que KM Fin sea mayor que KM Inicio (si existe)
+    km_inicio = orden.get('kilometraje_inicio')
+    if km_inicio and km_fin_int <= int(km_inicio):
+        return jsonify({'message': f'KM Fin ({km_fin_int}) debe ser mayor que el KM Inicio ({km_inicio}).'}), 400
+
+    updates = {
+        'estado': 'completada', # ¡ESTADO FINAL!
+        'fecha_fin_real': datetime.now().isoformat(), # Fecha y hora actual
+        'kilometraje_fin': km_fin_int
+    }
+    
+    # --- 5. Actualizar la orden ---
+    try:
+        res_update = supabase.table('flota_ordenes').update(updates).eq('id', orden_id).execute()
+        
+        if res_update.data:
+            _registrar_cambio_estado(
+                orden_id,
+                'en_curso',
+                'completada',
+                user.get('id'),
+                f'Viaje finalizado desde App Móvil con KM {km_fin_int}'
+            )
+            return jsonify({'data': res_update.data[0], 'message': 'Viaje finalizado correctamente'}), 200
+        else:
+            return jsonify({'message': 'No se pudo actualizar la orden'}), 500
+            
+    except Exception as e:
+        current_app.logger.error(f"Error al finalizar viaje: {e}")
+        return jsonify({'message': 'Error inesperado al finalizar el viaje'}), 500
 # (Puedes añadir un comentario final si quieres forzar el deploy,
 # pero añadir esta función ya es un cambio grande)
 # FORZAR RE-DEPLOY V3
