@@ -496,7 +496,7 @@ def get_ordenes_conductor_activas():
         current_app.logger.error(f"Error al buscar órdenes de conductor: {e}")
         return jsonify({'message': 'Error inesperado al buscar órdenes'}), 500 
 
-# --- RUTA PARA APP MÓVIL: INICIAR VIAJE ---
+# --- RUTA PARA APP MÓVIL: INICIAR VIAJE (VERSIÓN 3 - ACEPTA OBSERVACIONES) ---
 
 @bp.route('/<int:orden_id>/iniciar', methods=['POST'])
 @auth_required
@@ -504,6 +504,7 @@ def iniciar_viaje_conductor(orden_id):
     """
     [APP MOVIL] Permite al conductor autenticado iniciar un viaje (Orden).
     Cambia el estado de 'asignada' a 'en_curso' y registra la fecha de inicio real.
+    Acepta 'kilometraje_inicio' y 'observacion_inicio'.
     """
     supabase = current_app.config.get('SUPABASE')
     user = g.get('current_user') # Usuario de flota_usuarios
@@ -519,7 +520,6 @@ def iniciar_viaje_conductor(orden_id):
             return jsonify({'message': 'Su usuario no está creado como conductor. Favor solicite su creación al administrador.'}), 404
         conductor_id_flota = res_conductor.data[0]['id']
     except Exception as e:
-        current_app.logger.error(f"Error buscando ID de conductor por RUT: {e}")
         return jsonify({'message': 'Error interno al verificar conductor'}), 500
 
     # --- 2. Obtener la orden ---
@@ -538,31 +538,36 @@ def iniciar_viaje_conductor(orden_id):
     if orden.get('estado') != 'asignada':
         return jsonify({'message': f'No se puede iniciar. El estado actual es "{orden.get("estado")}".'}), 400
 
-    # --- 4. Recibir datos (Kilometraje inicial opcional) ---
+    # --- 4. Recibir datos (KM y Observaciones de Inicio) ---
     payload = request.get_json() or {}
     km_inicio = payload.get('kilometraje_inicio')
+    observacion_inicio = payload.get('observacion_inicio', '').strip() # ¡NUEVO!
     
     updates = {
-        'estado': 'en_curso', # ¡NUEVO ESTADO!
+        'estado': 'en_curso', # Nuevo estado
         'fecha_inicio_real': datetime.now().isoformat() # Fecha y hora actual
     }
     
     if km_inicio and int(km_inicio) > 0:
         updates['kilometraje_inicio'] = int(km_inicio)
     
+    # ¡NUEVO! Lógica para añadir observación de inicio
+    if observacion_inicio:
+        obs_originales = orden.get('observaciones') or ''
+        # Añadimos la nueva observación al principio
+        updates['observaciones'] = f"[INICIO CONDUCTOR]: {observacion_inicio}\n\n-----\n\n{obs_originales}".strip()
+    
     # --- 5. Actualizar la orden ---
     try:
-        # Usamos .execute() al final
         res_update = supabase.table('flota_ordenes').update(updates).eq('id', orden_id).execute()
         
         if res_update.data:
-            # Registrar en historial (usando la función que ya existe en ordenes.py)
             _registrar_cambio_estado(
                 orden_id,
                 'asignada',
                 'en_curso',
-                user.get('id'), # ID del usuario (flota_usuarios)
-                'Viaje iniciado desde App Móvil'
+                user.get('id'),
+                f'Viaje iniciado desde App Móvil (Obs: {observacion_inicio[:20]}...)'
             )
             return jsonify({'data': res_update.data[0], 'message': 'Viaje iniciado correctamente'}), 200
         else:
@@ -570,7 +575,7 @@ def iniciar_viaje_conductor(orden_id):
             
     except Exception as e:
         current_app.logger.error(f"Error al iniciar viaje: {e}")
-        return jsonify({'message': 'Error inesperado al iniciar el viaje'}), 500
+        return jsonify({'message': 'Error inesperado al iniciar el viaje'}), 500 
 # --- RUTA PARA APP MÓVIL: VER VIAJES EN CURSO ---
 
 @bp.route('/conductor/en_curso', methods=['GET'])
