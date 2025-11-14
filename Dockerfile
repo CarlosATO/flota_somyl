@@ -15,6 +15,15 @@ COPY frontend/ ./frontend/
 
 # Instalar dependencias de Node y construir frontend
 WORKDIR /app/frontend
+
+# Declarar build args para las variables de entorno de Vite
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+
+# Exportarlas como variables de entorno para el build
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
 RUN npm install
 RUN npm run build
 
