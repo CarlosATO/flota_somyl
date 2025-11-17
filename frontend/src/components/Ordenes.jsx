@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Ordenes.css';
-import MapaRuta from './MapaRuta'; // <--- AGREGADO: componente de mapa
+import MapaRuta from './MapaRuta.jsx'; // <--- AGREGADO: componente de mapa (import explícito con extensión para evitar errores de resolución en build)
 
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
