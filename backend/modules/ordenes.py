@@ -707,3 +707,40 @@ def finalizar_viaje_conductor(orden_id):
         return jsonify({'message': 'Error inesperado al finalizar el viaje'}), 500
 
 # FORZAR RE-DEPLOY V5
+# --- RUTA PARA APP MÓVIL: HISTORIAL DE VIAJES ---
+
+@bp.route('/conductor/historial', methods=['GET'])
+@auth_required
+def get_ordenes_conductor_historial():
+    """
+    [APP MOVIL] Obtiene las órdenes FINALIZADAS o CANCELADAS del conductor.
+    Devuelve las últimas 20 para no sobrecargar la app.
+    """
+    supabase = current_app.config.get('SUPABASE')
+    user = g.get('current_user')
+    
+    if (user.get('cargo') or '').lower() != 'conductor':
+        return jsonify({'message': 'Acceso denegado.'}), 403
+
+    try:
+        conductor_rut = user.get('rut')
+        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
+        if not res_conductor.data:
+            return jsonify({'message': 'Conductor no encontrado.'}), 404
+        conductor_id_flota = res_conductor.data[0]['id']
+    except Exception as e:
+        return jsonify({'message': 'Error interno.'}), 500
+    
+    try:
+        # Buscamos órdenes COMPLETADAS o CANCELADAS
+        # Usamos .in_() para el estado
+        res = supabase.table('flota_ordenes').select(
+            "*, vehiculo:flota_vehiculos(placa, marca, modelo)"
+        ).eq('conductor_id', conductor_id_flota).in_('estado', ['completada', 'cancelada']).order('fecha_fin_real', desc=True).limit(20).execute()
+        
+        data = res.data or []
+        return jsonify({'data': data}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error al buscar historial: {e}")
+        return jsonify({'message': 'Error al obtener el historial'}), 500
