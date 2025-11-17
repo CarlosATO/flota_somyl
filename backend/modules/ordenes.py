@@ -744,3 +744,5 @@ def get_ordenes_conductor_historial():
     except Exception as e:
         current_app.logger.error(f"Error al buscar historial: {e}")
         return jsonify({'message': 'Error al obtener el historial'}), 500
+
+# Redeploy trigger (no-op): comentario añadido para forzar que el hosting detecte un nuevo commit y vuelva a desplegar.
