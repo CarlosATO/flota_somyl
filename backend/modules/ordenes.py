@@ -786,4 +786,28 @@ def registrar_ruta_gps(orden_id):
     except Exception as e:
         current_app.logger.error(f"Error guardando ruta GPS: {e}")
         return jsonify({'message': 'Error al guardar ruta'}), 500
+# --- RUTA PARA OBTENER PUNTOS GPS (WEB Y MÓVIL) ---
+
+@bp.route('/<int:orden_id>/ruta', methods=['GET'])
+@auth_required
+def get_ruta_gps(orden_id):
+    """
+    Obtiene todos los puntos GPS registrados para una orden, ordenados por tiempo.
+    """
+    supabase = current_app.config.get('SUPABASE')
+    
+    try:
+        # Obtener puntos ordenados por timestamp
+        res = supabase.table('flota_orden_rutas') \
+            .select('latitud, longitud, timestamp, velocidad') \
+            .eq('orden_id', orden_id) \
+            .order('timestamp', desc=False) \
+            .execute()
+            
+        data = res.data or []
+        return jsonify({'data': data}), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error al obtener ruta GPS: {e}")
+        return jsonify({'message': 'Error al obtener la ruta'}), 500
 # Redeploy trigger (no-op): comentario añadido para forzar que el hosting detecte un nuevo commit y vuelva a desplegar.
