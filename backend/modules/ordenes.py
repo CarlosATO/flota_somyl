@@ -744,5 +744,46 @@ def get_ordenes_conductor_historial():
     except Exception as e:
         current_app.logger.error(f"Error al buscar historial: {e}")
         return jsonify({'message': 'Error al obtener el historial'}), 500
+# --- RUTA PARA APP MÓVIL: REGISTRAR PUNTOS GPS ---
 
+@bp.route('/<int:orden_id>/ruta', methods=['POST'])
+@auth_required
+def registrar_ruta_gps(orden_id):
+    """
+    Recibe una lista de puntos GPS y los guarda en la tabla flota_orden_rutas.
+    Payload esperado: { "puntos": [ {lat, lng, timestamp, speed}, ... ] }
+    """
+    supabase = current_app.config.get('SUPABASE')
+    
+    # Validar que la orden existe
+    # (Podríamos validar conductor también, pero por rendimiento confiamos en el token por ahora)
+    
+    payload = request.get_json() or {}
+    puntos = payload.get('puntos', [])
+    
+    if not puntos or not isinstance(puntos, list):
+        return jsonify({'message': 'Se requiere una lista de puntos GPS.'}), 400
+
+    # Preparamos los datos para inserción masiva
+    datos_para_insertar = []
+    for p in puntos:
+        datos_para_insertar.append({
+            'orden_id': orden_id,
+            'latitud': p.get('latitude'),
+            'longitud': p.get('longitude'),
+            'velocidad': p.get('speed'),
+            'timestamp': p.get('timestamp') # Debe venir en formato ISO o compatible
+        })
+
+    try:
+        # Inserción masiva en Supabase
+        if datos_para_insertar:
+            res = supabase.table('flota_orden_rutas').insert(datos_para_insertar).execute()
+            return jsonify({'message': f'{len(datos_para_insertar)} puntos guardados'}), 201
+        else:
+            return jsonify({'message': 'No hay puntos válidos'}), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error guardando ruta GPS: {e}")
+        return jsonify({'message': 'Error al guardar ruta'}), 500
 # Redeploy trigger (no-op): comentario añadido para forzar que el hosting detecte un nuevo commit y vuelva a desplegar.
