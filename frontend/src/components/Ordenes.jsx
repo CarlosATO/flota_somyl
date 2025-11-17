@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Ordenes.css';
+import MapaRuta from './MapaRuta'; // <--- AGREGADO: componente de mapa
 
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
@@ -617,6 +618,12 @@ function Ordenes({ user, token }) {
     const [formError, setFormError] = useState(null);
     const [modalDefaultTab, setModalDefaultTab] = useState('detalle');
 
+    // --- ESTADOS PARA EL MAPA ---
+    const [showMapa, setShowMapa] = useState(false);
+    const [rutaData, setRutaData] = useState([]);
+    const [ordenParaMapa, setOrdenParaMapa] = useState(null);
+    const [loadingMapa, setLoadingMapa] = useState(false);
+
     const canWrite = useMemo(() => ['administrador', 'dispatcher'].includes((user?.cargo || '').toLowerCase()), [user?.cargo]);
     const isAdmin = useMemo(() => (user?.cargo || '').toLowerCase() === 'administrador', [user?.cargo]);
     const debouncedSearch = useDebounce(searchQuery, 500);
@@ -696,6 +703,24 @@ function Ordenes({ user, token }) {
             'cancelada': 'badge-estado-cancelada'
         };
         return `badge-estado ${badges[estado] || 'badge-estado-default'}`;
+    };
+
+    // --- FUNCION PARA CARGAR RUTA Y MOSTRAR MAPA ---
+    const handleVerMapa = async (orden) => {
+        setOrdenParaMapa(orden);
+        setRutaData([]);
+        setShowMapa(true);
+        setLoadingMapa(true);
+        try {
+            const res = await apiFetch(`/api/ordenes/${orden.id}/ruta`);
+            if (res && res.status === 200) {
+                setRutaData(res.data.data || []);
+            }
+        } catch (e) {
+            console.error('Error cargando ruta GPS', e);
+        } finally {
+            setLoadingMapa(false);
+        }
     };
 
     if (!token) {
@@ -793,6 +818,15 @@ function Ordenes({ user, token }) {
                                         {(canWrite || isAdmin) && (
                                             <td>
                                                 <div className="action-buttons-pro">
+                                                    {/* BOTÓN DE MAPA */}
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); handleVerMapa(o); }}
+                                                        className="btn-icon-pro"
+                                                        title="Ver Ruta GPS"
+                                                        style={{backgroundColor: '#e0f2fe', color: '#0369a1'}}
+                                                    >
+                                                        🗺️
+                                                    </button>
                                                     {canWrite && (
                                                         <button onClick={(e) => { 
                                                             e.stopPropagation();
@@ -847,6 +881,25 @@ function Ordenes({ user, token }) {
                 submitting={submitting} 
                 defaultTab={modalDefaultTab}
             />
+
+            {/* --- MODAL DE MAPA --- */}
+            {showMapa && (
+                <div className="modal-overlay" onClick={() => setShowMapa(false)}>
+                    <div className="modal-content modal-large" onClick={e => e.stopPropagation()} style={{maxWidth: '900px'}}>
+                        <div className="modal-header-pro">
+                            <h3>🗺️ Ruta GPS - Orden #{ordenParaMapa?.id}</h3>
+                            <button onClick={() => setShowMapa(false)} className="modal-close-pro">×</button>
+                        </div>
+                        <div className="modal-body-pro" style={{padding: 0, height: '500px'}}>
+                            {loadingMapa ? (
+                                <div className="loading-state">Cargando puntos GPS...</div>
+                            ) : (
+                                <MapaRuta puntos={rutaData} />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <ConfirmationModal 
                 isOpen={!!cancelingOrden} 
