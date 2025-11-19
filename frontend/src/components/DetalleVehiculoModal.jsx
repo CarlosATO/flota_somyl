@@ -32,10 +32,13 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
             params.append('per_page', limit);
             params.append('page', 1);
             // Solo completadas/canceladas
-            params.append('estado', 'completada,cancelada');
-
+            // No pasar estado multiple (la API acepta valor simple). Obtendremos y filtraremos en cliente
             const resViajes = await apiFetch(`/api/ordenes?${params.toString()}`);
-            if (resViajes.status === 200) setViajes(resViajes.data.data || []);
+            if (resViajes.status === 200) {
+                const all = resViajes.data.data || [];
+                const filtered = all.filter(v => ['completada', 'cancelada'].includes(String(v.estado).toLowerCase()));
+                setViajes(filtered);
+            }
 
         } catch (err) {
             console.error('Error cargando detalles del vehículo', err);
@@ -57,9 +60,13 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
             params.append('page', 1);
             if (fechaDesde) params.append('fecha_desde', fechaDesde);
             if (fechaHasta) params.append('fecha_hasta', fechaHasta);
-            params.append('estado', 'completada,cancelada');
+                // No pasar estado, filtraremos en el cliente si es necesario
             const resViajes = await apiFetch(`/api/ordenes?${params.toString()}`);
-            if (resViajes.status === 200) setViajes(resViajes.data.data || []);
+            if (resViajes.status === 200) {
+                const all = resViajes.data.data || [];
+                const filtered = all.filter(v => ['completada', 'cancelada'].includes(String(v.estado).toLowerCase()));
+                setViajes(filtered);
+            }
         } catch (e) {
             console.error('Error recargando viajes', e);
         } finally {
