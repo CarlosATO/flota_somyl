@@ -798,6 +798,17 @@
   margin-top: 0.25rem;
 }
 
+/* Small icon button used in tables */
+.btn-icon {
+  background: transparent;
+  border: none;
+  padding: 0.25rem;
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.btn-icon:hover { background: #f1f5f9; }
+
 .doc-badge[title] {
   cursor: help;
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api';
 import './Reportes.css';
+import DetalleVehiculoModal from './DetalleVehiculoModal.jsx';
 
 const formatCurrency = (value) => {
     if (value === null || value === undefined) return '-';
@@ -46,6 +47,8 @@ function Reportes({ token }) {
     // Estados para análisis de vehículos (Combustible)
     const [analisisVehiculos, setAnalisisVehiculos] = useState([]);
     const [loadingAnalisis, setLoadingAnalisis] = useState(false);
+    const [selectedVehiculoId, setSelectedVehiculoId] = useState(null);
+    const [showDetalleVehiculoModal, setShowDetalleVehiculoModal] = useState(false);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -112,6 +115,11 @@ function Reportes({ token }) {
 
     const handleKPIClick = (tipo) => {
         setModalDetalle(tipo);
+    };
+
+    const openVehiculoModal = (vehId) => {
+        setSelectedVehiculoId(vehId);
+        setShowDetalleVehiculoModal(true);
     };
 
     // Helper para mostrar estado de documento y fecha de vencimiento.
@@ -355,6 +363,7 @@ function Reportes({ token }) {
                                             <th>Rev. Técnica</th>
                                             <th>SOAP</th>
                                             <th>Seguro Oblig.</th>
+                                                <th></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -365,7 +374,7 @@ function Reportes({ token }) {
                                             const seguro = getEstadoDocumento(vehiculo.seguro_obligatorio);
 
                                             return (
-                                                <tr key={vehiculo.id}>
+                                                <tr key={vehiculo.id} onDoubleClick={() => openVehiculoModal(vehiculo.id)} style={{cursor: 'pointer'}}>
                                                     <td><strong>{vehiculo.patente}</strong></td>
                                                     <td>{vehiculo.marca} {vehiculo.modelo}</td>
                                                     <td>{vehiculo.ano}</td>
@@ -414,6 +423,9 @@ function Reportes({ token }) {
                                                             )}
                                                         </div>
                                                     </td>
+                                                    <td style={{width:'1rem'}}>
+                                                        <button className="btn btn-icon" onClick={(e) => { e.stopPropagation(); openVehiculoModal(vehiculo.id); }} title="Ver detalle vehículo">🔎</button>
+                                                    </td>
                                                 </tr>
                                             );
                                         })}
@@ -430,6 +442,13 @@ function Reportes({ token }) {
                 <ModalDetalle 
                     tipo={modalDetalle} 
                     onClose={() => setModalDetalle(null)} 
+                />
+            )}
+            {showDetalleVehiculoModal && (
+                <DetalleVehiculoModal 
+                    vehiculoId={selectedVehiculoId}
+                    open={showDetalleVehiculoModal}
+                    onClose={() => setShowDetalleVehiculoModal(false)}
                 />
             )}
         </div>
