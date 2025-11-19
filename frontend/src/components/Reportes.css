@@ -792,6 +792,16 @@
     border-color: #cbd5e1;
 }
 
+.doc-fecha {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  margin-top: 0.25rem;
+}
+
+.doc-badge[title] {
+  cursor: help;
+}
+
 /* === Estilos para código (RUT, etc.) === */
 .report-table code {
     background: #f1f5f9;

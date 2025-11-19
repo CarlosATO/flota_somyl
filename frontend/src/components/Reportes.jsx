@@ -114,12 +114,40 @@ function Reportes({ token }) {
         setModalDetalle(tipo);
     };
 
-    // Helper para mostrar estado de documento
+    // Helper para mostrar estado de documento y fecha de vencimiento.
+    // Cambia de color según días restantes:
+    // dias <= 0 => rojo (doc-vencido)
+    // 1 <= dias < 60 => amarillo (doc-por-vencer)
+    // dias >= 60 => verde (doc-vigente)
     const getEstadoDocumento = (doc) => {
-        if (!doc) return { texto: 'SIN REGISTRO', clase: 'doc-sin-registro' };
-        if (doc.estado === 'VENCIDO') return { texto: 'VENCIDO', clase: 'doc-vencido' };
-        if (doc.estado === 'POR_VENCER') return { texto: `${doc.dias_restantes} días`, clase: 'doc-por-vencer' };
-        return { texto: `${doc.dias_restantes} días`, clase: 'doc-vigente' };
+        if (!doc) return { texto: 'SIN REGISTRO', clase: 'doc-sin-registro', fecha_vencimiento: null };
+
+        const fechaStr = doc.fecha_vencimiento || doc.fechaVencimiento || null;
+        let dias = null;
+        if (typeof doc.dias_restantes === 'number') {
+            dias = doc.dias_restantes;
+        } else if (fechaStr) {
+            // Calcular días restantes si backend no entregó 'dias_restantes'
+            try {
+                const hoy = new Date();
+                const fecha = new Date(fechaStr);
+                const diff = Math.floor((fecha - hoy) / (1000 * 60 * 60 * 24));
+                dias = diff;
+            } catch (e) {
+                dias = null;
+            }
+        }
+
+        // Si no pudimos determinar días restantes, fallback a estado textual si lo hay
+        if (dias === null) {
+            if (doc.estado === 'VENCIDO') return { texto: 'VENCIDO', clase: 'doc-vencido', fecha_vencimiento: fechaStr };
+            if (doc.estado === 'POR_VENCER') return { texto: 'POR VENCER', clase: 'doc-por-vencer', fecha_vencimiento: fechaStr };
+            return { texto: 'VIGENTE', clase: 'doc-vigente', fecha_vencimiento: fechaStr };
+        }
+
+        if (dias <= 0) return { texto: 'VENCIDO', clase: 'doc-vencido', fecha_vencimiento: fechaStr };
+        if (dias < 60) return { texto: `${dias} días`, clase: 'doc-por-vencer', fecha_vencimiento: fechaStr };
+        return { texto: `${dias} días`, clase: 'doc-vigente', fecha_vencimiento: fechaStr };
     };
 
     if (!token) return <div className="loading-state">Cargando...</div>;
@@ -347,24 +375,44 @@ function Reportes({ token }) {
                                                     <td>{formatCurrency(vehiculo.costo_por_km)}</td>
                                                     <td>{formatCurrency(vehiculo.total_gastado_mes)}</td>
                                                     <td>
-                                                        <span className={`doc-badge ${permiso.clase}`}>
-                                                            {permiso.texto}
-                                                        </span>
+                                                        <div>
+                                                            <span className={`doc-badge ${permiso.clase}`} title={permiso.fecha_vencimiento ? formatDate(permiso.fecha_vencimiento) : ''}>
+                                                                {permiso.texto}
+                                                            </span>
+                                                            {permiso.fecha_vencimiento && (
+                                                                <div className="doc-fecha">{formatDate(permiso.fecha_vencimiento)}</div>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                     <td>
-                                                        <span className={`doc-badge ${revision.clase}`}>
-                                                            {revision.texto}
-                                                        </span>
+                                                        <div>
+                                                            <span className={`doc-badge ${revision.clase}`} title={revision.fecha_vencimiento ? formatDate(revision.fecha_vencimiento) : ''}>
+                                                                {revision.texto}
+                                                            </span>
+                                                            {revision.fecha_vencimiento && (
+                                                                <div className="doc-fecha">{formatDate(revision.fecha_vencimiento)}</div>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                     <td>
-                                                        <span className={`doc-badge ${soap.clase}`}>
-                                                            {soap.texto}
-                                                        </span>
+                                                        <div>
+                                                            <span className={`doc-badge ${soap.clase}`} title={soap.fecha_vencimiento ? formatDate(soap.fecha_vencimiento) : ''}>
+                                                                {soap.texto}
+                                                            </span>
+                                                            {soap.fecha_vencimiento && (
+                                                                <div className="doc-fecha">{formatDate(soap.fecha_vencimiento)}</div>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                     <td>
-                                                        <span className={`doc-badge ${seguro.clase}`}>
-                                                            {seguro.texto}
-                                                        </span>
+                                                        <div>
+                                                            <span className={`doc-badge ${seguro.clase}`} title={seguro.fecha_vencimiento ? formatDate(seguro.fecha_vencimiento) : ''}>
+                                                                {seguro.texto}
+                                                            </span>
+                                                            {seguro.fecha_vencimiento && (
+                                                                <div className="doc-fecha">{formatDate(seguro.fecha_vencimiento)}</div>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             );

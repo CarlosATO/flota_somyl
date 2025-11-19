@@ -501,30 +501,63 @@ def get_analisis_vehiculos():
             docs_vehiculo = [d for d in documentos if d.get('vehiculo_id') == vehiculo_id]
             
             # Tipos de documentos obligatorios
+            # Normalizamos a claves técnicas para facilitar la asignación desde varios formatos
             tipos_docs = {
-                'Permiso de Circulación': None,
-                'Revisión Técnica': None,
-                'SOAP': None,
-                'Seguro Obligatorio': None
+                'permiso_circulacion': None,
+                'revision_tecnica': None,
+                'soap': None,
+                'seguro_obligatorio': None
             }
             
+            import re
+
+            def _normalize_tipo(t):
+                if not t: return ''
+                # pasar a minúsculas y eliminar espacios/guiones/subrayados y caracteres especiales
+                s = str(t).strip().lower()
+                s = re.sub(r"[\s_\-]+", '', s)
+                s = re.sub(r"[^a-z0-9]+", '', s)
+                return s
+
             for doc in docs_vehiculo:
-                tipo = doc.get('tipo_documento')
+                tipo = doc.get('tipo_documento') or ''
+                tipo_norm = _normalize_tipo(tipo)
                 fecha_venc = doc.get('fecha_vencimiento')
                 
-                if tipo in tipos_docs and fecha_venc:
+                if fecha_venc:
                     try:
                         fecha_venc_date = datetime.fromisoformat(fecha_venc.replace('Z', ''))
                         # si la fecha incluye hora, obtener date()
                         if hasattr(fecha_venc_date, 'date'):
                             fecha_venc_date = fecha_venc_date.date()
                         dias_restantes = (fecha_venc_date - hoy).days
-                        tipos_docs[tipo] = {
+                        doc_obj = {
                             'fecha_vencimiento': fecha_venc,
                             'dias_restantes': dias_restantes,
                             'estado': 'VIGENTE' if dias_restantes > 30 else 
                                      'POR_VENCER' if dias_restantes > 0 else 'VENCIDO'
                         }
+
+                        # Mapeo flexible para distintos formatos de tipo_documento
+                        # Valores esperados en UI/DB: 'PERMISO_CIRCULACION', 'REVISION_TECNICA', 'SEGURO_OBLIGATORIO', 'SOAP', etc.
+                        if tipo_norm in ('permisocirculacion', 'permisodecirculacion', 'permisocirc', 'permiso'):
+                            tipos_docs['permiso_circulacion'] = doc_obj
+                        elif tipo_norm in ('revisiontecnica', 'revtecnica', 'revistatecnica', 'revisióntécnica', 'revisióntecnica', 'revisión'):
+                            tipos_docs['revision_tecnica'] = doc_obj
+                        elif tipo_norm in ('soap', 'seguroobligatorio', 'seguroobligatoriosoap', 'seguro'):
+                            # A veces el tipo puede ser 'SOAP' o 'SEGURO_OBLIGATORIO' en distintas variantes; asignar a ambos campos
+                            tipos_docs['soap'] = doc_obj
+                            tipos_docs['seguro_obligatorio'] = doc_obj
+                        else:
+                            # Soporte para etiquetas en texto libre con palabras clave
+                            if 'permiso' in tipo_norm:
+                                tipos_docs['permiso_circulacion'] = doc_obj
+                            elif 'revis' in tipo_norm or 'itv' in tipo_norm or 'vtv' in tipo_norm:
+                                tipos_docs['revision_tecnica'] = doc_obj
+                            elif 'seguro' in tipo_norm or 'soap' in tipo_norm:
+                                tipos_docs['soap'] = doc_obj
+                                tipos_docs['seguro_obligatorio'] = doc_obj
+                            # en cualquier otro caso no hacemos nada (otros tipos)
                     except Exception:
                         # ignorar doc con formato incorrecto
                         continue
@@ -542,10 +575,10 @@ def get_analisis_vehiculos():
                 'costo_por_km': costo_por_km,
                 'total_gastado_mes': round(total_mes, 0),
                 'ultimo_km': ultimo_km,
-                'permiso_circulacion': tipos_docs.get('Permiso de Circulación'),
-                'revision_tecnica': tipos_docs.get('Revisión Técnica'),
-                'soap': tipos_docs.get('SOAP'),
-                'seguro_obligatorio': tipos_docs.get('Seguro Obligatorio')
+                'permiso_circulacion': tipos_docs.get('permiso_circulacion'),
+                'revision_tecnica': tipos_docs.get('revision_tecnica'),
+                'soap': tipos_docs.get('soap'),
+                'seguro_obligatorio': tipos_docs.get('seguro_obligatorio')
             })
         
         return jsonify({
