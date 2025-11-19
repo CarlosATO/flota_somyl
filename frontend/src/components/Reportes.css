@@ -809,6 +809,10 @@
 }
 .btn-icon:hover { background: #f1f5f9; }
 
+.modal-tabs{ display:flex; gap:0.5rem; }
+.tab-button{ font-size:0.9rem; padding:0.5rem 0.75rem; border-radius:8px; border:1px solid transparent; background: white; cursor:pointer; }
+.tab-button.active{ background:#f1f5f9; border-color:#e5e7eb; }
+
 .doc-badge[title] {
   cursor: help;
 }
