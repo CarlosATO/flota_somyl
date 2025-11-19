@@ -395,6 +395,15 @@
   }
 }
 
+/* Compact navigation: hide nav-item text and shrink icons -- wider breakpoint */
+@media (max-width: 1280px) {
+  .nav-item span { display: none; }
+  .nav-item { padding: 0.5rem 0.75rem; }
+  .nav-item svg { width: 16px; height: 16px; }
+  .nav-separator { height: 22px; }
+  .topbar-top { min-height: 46px; }
+}
+
 @media (max-width: 640px) {
   .topbar {
     padding: 0 0.75rem;

@@ -80,6 +80,8 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
         <button 
           className={`nav-item ${activeModule === 'vehiculos' ? 'active' : ''}`}
           onClick={() => onNavigate('vehiculos')}
+          title="Vehículos"
+          aria-label="Vehículos"
         >
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M19 17H5C3.89543 17 3 16.1046 3 15V9C3 7.89543 3.89543 7 5 7H19C20.1046 7 21 7.89543 21 9V15C21 16.1046 20.1046 17 19 17Z" stroke="currentColor" strokeWidth="2"/>
@@ -92,6 +94,8 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
         <button 
           className={`nav-item ${activeModule === 'conductores' ? 'active' : ''}`}
           onClick={() => onNavigate('conductores')}
+          title="Conductores"
+          aria-label="Conductores"
         >
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" strokeWidth="2"/>
@@ -107,6 +111,8 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
         <button 
           className={`nav-item ${activeModule === 'viajes' ? 'active' : ''}`}
           onClick={() => onNavigate('viajes')}
+          title="Viajes"
+          aria-label="Viajes"
         >
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M9 11L12 14L22 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -118,6 +124,8 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
         <button 
           className={`nav-item ${activeModule === 'mantenimiento' ? 'active' : ''}`}
           onClick={() => onNavigate('mantenimiento')}
+          title="Mantenimiento"
+          aria-label="Mantenimiento"
         >
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M14.7 6.3C15.1 5.9 15.1 5.3 14.7 4.9L13.1 3.3C12.7 2.9 12.1 2.9 11.7 3.3L10.6 4.4L13.6 7.4L14.7 6.3Z" stroke="currentColor" strokeWidth="2"/>
@@ -129,6 +137,8 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
         <button 
           className={`nav-item ${activeModule === 'combustible' ? 'active' : ''}`}
           onClick={() => onNavigate('combustible')}
+          title="Combustible"
+          aria-label="Combustible"
         >
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M3 10h2v7a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-7h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -146,6 +156,8 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
           <button 
             className={`nav-item ${isReportesActive ? 'active' : ''}`}
             onClick={handleReportesClick}
+            title="Reportes"
+            aria-label="Reportes"
           >
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M9 17V11M12 17V7M15 17V13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
@@ -220,6 +232,8 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
         <button 
           className={`nav-item ${activeModule === 'usuarios' ? 'active' : ''}`}
           onClick={() => onNavigate('usuarios')}
+          title="Usuarios"
+          aria-label="Usuarios"
         >
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M17 21V19C17 17.9391 16.5786 16.9217 15.8284 16.1716C15.0783 15.4214 14.0609 15 13 15H5C3.93913 15 2.92172 15.4214 2.17157 16.1716C1.42143 16.9217 1 17.9391 1 19V21" stroke="currentColor" strokeWidth="2"/>
