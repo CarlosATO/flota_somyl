@@ -36,18 +36,39 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
             // Viajes (ordenes) - por defecto últimos <limit>
             const params = new URLSearchParams();
             params.append('vehiculo_id', vehiculoId);
-            params.append('per_page', limit);
+            // Traer una cantidad mayor para filtrar localmente (limit max 100)
+            const fetchLimit = Math.max(limit, 50);
+            params.append('per_page', Math.min(100, fetchLimit));
             params.append('page', 1);
-            // Rango de fechas por defecto (últimos 30 días)
-            if (fechaDesde) params.append('fecha_desde', fechaDesde);
-            if (fechaHasta) params.append('fecha_hasta', fechaHasta);
             // Solo completadas/canceladas
             // No pasar estado multiple (la API acepta valor simple). Obtendremos y filtraremos en cliente
             const resViajes = await apiFetch(`/api/ordenes?${params.toString()}`);
             if (resViajes.status === 200) {
                 const all = resViajes.data.data || [];
-                const filtered = all.filter(v => ['completada', 'cancelada'].includes(String(v.estado).toLowerCase()));
-                setViajes(filtered);
+                // Filter by state and by date window (fecha_inicio_real | fecha_fin_real | fecha_inicio_programada)
+                const desdeDate = fechaDesde ? new Date(fechaDesde) : null;
+                const hastaDate = fechaHasta ? new Date(fechaHasta) : null;
+                const withinRange = (v) => {
+                    const fechaRealInicio = v.fecha_inicio_real ? new Date(v.fecha_inicio_real) : null;
+                    const fechaRealFin = v.fecha_fin_real ? new Date(v.fecha_fin_real) : null;
+                    const fechaProg = v.fecha_inicio_programada ? new Date(v.fecha_inicio_programada) : null;
+                    // Prefer real dates, otherwise programada
+                    const candidate = fechaRealInicio || fechaRealFin || fechaProg;
+                    if (!candidate) return false;
+                    if (desdeDate && candidate < desdeDate) return false;
+                    if (hastaDate && candidate > (new Date(hastaDate.getTime() + 24*60*60*1000 - 1))) return false;
+                    return true;
+                };
+
+                const filtered = all.filter(v => ['completada', 'cancelada'].includes(String(v.estado).toLowerCase()) && withinRange(v));
+                // sort by fecha_fin_real desc or fecha_inicio_real
+                filtered.sort((a,b) => {
+                    const da = a.fecha_fin_real ? new Date(a.fecha_fin_real) : (a.fecha_inicio_real ? new Date(a.fecha_inicio_real) : new Date(0));
+                    const db = b.fecha_fin_real ? new Date(b.fecha_fin_real) : (b.fecha_inicio_real ? new Date(b.fecha_inicio_real) : new Date(0));
+                    return db - da;
+                });
+
+                setViajes(filtered.slice(0, limit));
             }
 
         } catch (err) {
@@ -75,7 +96,7 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
             if (resViajes.status === 200) {
                 const all = resViajes.data.data || [];
                 const filtered = all.filter(v => ['completada', 'cancelada'].includes(String(v.estado).toLowerCase()));
-                setViajes(filtered);
+                setViajes(filtered.slice(0, limit));
             }
         } catch (e) {
             console.error('Error recargando viajes', e);
