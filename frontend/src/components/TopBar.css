@@ -5,7 +5,7 @@
   display: flex;
   flex-direction: column;
   padding: 0 1.5rem;
-  gap: 1.5rem;
+  gap: 0.5rem; /* Reduced gap to compact topbar */
   position: sticky;
   top: 0;
   z-index: 100;
@@ -16,8 +16,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1.5rem;
+  padding: 0.5rem 1rem; /* Reduced padding to shrink vertical height */
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  min-height: 48px; /* Ensure compact single-line header */
 }
 
 .topbar-user {
@@ -30,15 +31,15 @@
 .topbar-left {
   display: flex;
   align-items: center;
-  min-width: 200px;
+  min-width: 140px; /* reduce width to keep one line */
   flex-shrink: 0;
 }
 
 .topbar-logo {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 1.125rem;
+  gap: 0.5rem;
+  font-size: 1.0rem; /* slightly smaller to save space */
   font-weight: 700;
   color: white;
   cursor: default;
@@ -263,8 +264,8 @@
 .user-info {
   display: flex;
   align-items: center;
-  gap: 0.875rem;
-  padding: 0.5rem 0.875rem;
+  gap: 0.6rem;
+  padding: 0.25rem 0.5rem;
   border-radius: 10px;
   transition: background 0.2s ease;
   cursor: default;
@@ -275,8 +276,8 @@
 }
 
 .user-avatar {
-  width: 40px;
-  height: 40px;
+  width: 34px; /* smaller avatar */
+  height: 34px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.2);
   color: white;
@@ -284,34 +285,46 @@
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 0.9375rem;
+  font-size: 0.85rem;
   border: 2px solid rgba(255, 255, 255, 0.3);
 }
 
 .user-details {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-direction: row; /* show name and role inline */
+  gap: 0.5rem;
+  align-items: center;
 }
 
 .user-name {
-  font-size: 0.9375rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: white;
-  line-height: 1.2;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-role {
-  font-size: 0.8125rem;
-  color: rgba(255, 255, 255, 0.8);
-  line-height: 1.2;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.user-role::before {
+  content: '•';
+  display: inline-block;
+  margin-right: 0.35rem;
+  opacity: 0.85;
 }
 
 .btn-logout {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.625rem 1.125rem;
+  padding: 0.4rem 0.75rem;
   font-size: 0.9375rem;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.9);
