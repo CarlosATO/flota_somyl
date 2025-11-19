@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import MapaRuta from './MapaRuta.jsx';
 import './Reportes.css';
 
@@ -9,11 +10,17 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
     const [documentos, setDocumentos] = useState([]);
     const [viajes, setViajes] = useState([]);
     const [limit, setLimit] = useState(10);
-    const [fechaDesde, setFechaDesde] = useState('');
-    const [fechaHasta, setFechaHasta] = useState('');
+    const toIsoDate = (d) => d.toISOString().slice(0,10);
+    const today = new Date();
+    const defaultHasta = toIsoDate(today);
+    const defaultDesde = toIsoDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+    const [fechaDesde, setFechaDesde] = useState(defaultDesde);
+    const [fechaHasta, setFechaHasta] = useState(defaultHasta);
     const [loadingRuta, setLoadingRuta] = useState(false);
     const [rutaPuntos, setRutaPuntos] = useState([]);
     const [mapOrdenId, setMapOrdenId] = useState(null);
+    const [adjuntosByOrden, setAdjuntosByOrden] = useState({});
+    const [loadingAdjuntosMap, setLoadingAdjuntosMap] = useState({});
     const [openTab, setOpenTab] = useState('overview');
 
     const fetchData = useCallback(async () => {
@@ -31,6 +38,9 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
             params.append('vehiculo_id', vehiculoId);
             params.append('per_page', limit);
             params.append('page', 1);
+            // Rango de fechas por defecto (últimos 30 días)
+            if (fechaDesde) params.append('fecha_desde', fechaDesde);
+            if (fechaHasta) params.append('fecha_hasta', fechaHasta);
             // Solo completadas/canceladas
             // No pasar estado multiple (la API acepta valor simple). Obtendremos y filtraremos en cliente
             const resViajes = await apiFetch(`/api/ordenes?${params.toString()}`);
@@ -45,7 +55,7 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
         } finally {
             setLoading(false);
         }
-    }, [open, vehiculoId, limit]);
+    }, [open, vehiculoId, limit, fechaDesde, fechaHasta]);
 
     useEffect(() => {
         if (open) fetchData();
@@ -85,6 +95,39 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
             console.error('Error cargando ruta', e);
         } finally {
             setLoadingRuta(false);
+        }
+    };
+
+    const handleVerAdjuntos = async (ordenId) => {
+        // Toggle: if already loaded, remove to hide
+        if (adjuntosByOrden[ordenId]) {
+            const copy = { ...adjuntosByOrden };
+            delete copy[ordenId];
+            setAdjuntosByOrden(copy);
+            return;
+        }
+        setLoadingAdjuntosMap(prev => ({ ...prev, [ordenId]: true }));
+        try {
+            const res = await apiFetch(`/api/ordenes/${ordenId}/adjuntos`);
+            if (res.status === 200) {
+                const data = res.data.data || [];
+                // Build public URL for each using Supabase storage client
+                const mapped = data.map(a => {
+                    let publicUrl = null;
+                    try {
+                        const urlRes = supabase.storage.from('adjuntos_ordenes').getPublicUrl(a.storage_path);
+                        publicUrl = (urlRes && urlRes.data && urlRes.data.publicUrl) || urlRes?.publicUrl || null;
+                    } catch (e) {
+                        console.error('Error generando publicUrl', e);
+                    }
+                    return { ...a, publicUrl };
+                });
+                setAdjuntosByOrden(prev => ({ ...prev, [ordenId]: mapped }));
+            }
+        } catch (e) {
+            console.error('Error cargando adjuntos de orden', e);
+        } finally {
+            setLoadingAdjuntosMap(prev => ({ ...prev, [ordenId]: false }));
         }
     };
 
@@ -207,7 +250,8 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
                                                     <th>Origen → Destino</th>
                                                     <th>KMs</th>
                                                     <th>Conductor</th>
-                                                    <th>Acciones</th>
+                                                        <th>Acciones</th>
+                                                        <th>Fotos</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -223,6 +267,9 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
                                                             <button className="btn btn-secondary" onClick={() => window.open(`/ordenes/${v.id}`, '_blank')}>Ver Orden</button>
                                                             <button className="btn btn-primary" onClick={() => handleVerMapa(v.id)} style={{marginLeft: 8}}>Ver Mapa</button>
                                                         </td>
+                                                        <td>
+                                                            <button className="btn btn-secondary" onClick={() => handleVerAdjuntos(v.id)}>{adjuntosByOrden[v.id] ? 'Ver Fotos' : 'Cargar Fotos'}</button>
+                                                        </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -235,6 +282,25 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
                                             {loadingRuta ? <div className="loading-state">Cargando mapa...</div> : (
                                                 <MapaRuta puntos={rutaPuntos} />
                                             )}
+                                        </div>
+                                    )}
+
+                                    {/* Adjuntos por orden (si se cargaron) */}
+                                    {Object.keys(adjuntosByOrden).length > 0 && ( 
+                                        <div style={{marginTop: 16}}>
+                                            <h4>Fotos de viajes</h4>
+                                            {Object.entries(adjuntosByOrden).map(([ordenId, arr]) => (
+                                                <div key={ordenId} style={{marginBottom: 12}}>
+                                                    <h5>Orden #{ordenId}</h5>
+                                                    <div style={{display: 'flex', gap: 8, flexWrap: 'wrap'}}>
+                                                        {arr.length === 0 ? <small>No hay archivos adjuntos</small> : arr.map(a => (
+                                                            <a key={a.id} href={a.publicUrl} target="_blank" rel="noopener noreferrer">
+                                                                <img src={a.publicUrl} alt={a.nombre_archivo} style={{width: 120, height: 80, objectFit: 'cover', borderRadius: 6}} />
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     )}
                                 </div>
