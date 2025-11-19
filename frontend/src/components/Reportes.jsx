@@ -660,6 +660,7 @@ function TablaDetalleVehiculos({ data }) {
                     <th>Tipo</th>
                     <th>Año</th>
                     <th>KM Actual</th>
+                    <th>KM Recorridos</th>
                 </tr>
             </thead>
             <tbody>
@@ -670,6 +671,7 @@ function TablaDetalleVehiculos({ data }) {
                         <td>{v.tipo || '-'}</td>
                         <td>{v.ano || '-'}</td>
                         <td><strong>{v.km_actual ? v.km_actual.toLocaleString() + ' km' : '0 km'}</strong></td>
+                        <td>{v.km_recorridos ? v.km_recorridos.toLocaleString() + ' km' : '0 km'}</td>
                     </tr>
                 ))}
             </tbody>

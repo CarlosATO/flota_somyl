@@ -80,6 +80,13 @@ def search_adjuntos():
 
         for item in res_orden.data or []:
             placa = item.get('orden', {}).get('vehiculo', {}).get('placa') if item.get('orden') else None
+            # Add publicUrl for each adjunto
+            try:
+                sp = item.get('storage_path')
+                public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp) if sp else None
+                url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None) if public else None
+            except Exception:
+                url = None
             orden_adjuntos.append({
                 'id': item['id'],
                 'created_at': item['created_at'],
@@ -90,6 +97,7 @@ def search_adjuntos():
                 'entidad_id': item['orden_id'],
                 'tipo_entidad': 'Orden de Servicio'
             })
+            orden_adjuntos[-1]['publicUrl'] = url
             
     except Exception as e:
         current_app.logger.error(f"Error al buscar adjuntos de órdenes: {e}")
@@ -148,6 +156,12 @@ def search_adjuntos():
             res_mant = mant_query.order('created_at', desc=True).limit(50).execute()
 
         for item in res_mant.data or []:
+            try:
+                sp = item.get('storage_path')
+                public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp) if sp else None
+                url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None) if public else None
+            except Exception:
+                url = None
             placa = item.get('mantenimiento', {}).get('vehiculo', {}).get('placa') if item.get('mantenimiento') else None
             mant_adjuntos.append({
                 'id': item['id'],
@@ -159,6 +173,7 @@ def search_adjuntos():
                 'entidad_id': item['mantenimiento_id'],
                 'tipo_entidad': 'Mantenimiento'
             })
+            mant_adjuntos[-1]['publicUrl'] = url
             
     except Exception as e:
         current_app.logger.error(f"Error al buscar adjuntos de mantenimiento: {e}")

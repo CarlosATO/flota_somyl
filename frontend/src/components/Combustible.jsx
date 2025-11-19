@@ -137,6 +137,42 @@ const CargaAdjuntosList = ({ adjuntos, loading, onDelete }) => {
             return data.publicUrl;
         } catch (e) { return '#'; }
     };
+    const openPreview = async (adj) => {
+        if (!adj) return;
+        if (adj.publicUrl) {
+            window.open(adj.publicUrl, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        try {
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                window.open(blobUrl, '_blank', 'noopener,noreferrer');
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+            } else console.error('Error fetching preview ', res.status);
+        } catch (e) { console.error('Error opening preview', e); }
+    };
+    const downloadAdjunto = async (adj) => {
+        try {
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const downloadUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = adj.nombre_archivo || 'file';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+            } else console.error('Error downloading adj: ', res.status);
+        } catch (e) { console.error('Error downloading adj', e); }
+    };
 
     if (loading) return <p className="loading-adjuntos">Cargando adjuntos...</p>;
     if (!adjuntos || adjuntos.length === 0) return <p className="loading-adjuntos">📂 No hay archivos adjuntos.</p>;
@@ -150,12 +186,15 @@ const CargaAdjuntosList = ({ adjuntos, loading, onDelete }) => {
                             {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
                         </span>
                         <span className="adjunto-name">
-                            <a href={getPublicUrl(adj.storage_path)} target="_blank" rel="noopener noreferrer">
+                            <button type="button" className="btn-link" onClick={() => openPreview(adj)}>
                                 {adj.nombre_archivo || adj.storage_path}
-                            </a>
+                            </button>
                         </span>
                     </div>
-                    <button type="button" className="adjunto-delete-btn" title="Eliminar adjunto" onClick={() => onDelete(adj.id)}>×</button>
+                    <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+                        <button type="button" className="btn btn-tertiary" onClick={() => downloadAdjunto(adj)} title="Descargar">⬇️</button>
+                        <button type="button" className="adjunto-delete-btn" title="Eliminar adjunto" onClick={() => onDelete(adj.id)}>×</button>
+                    </div>
                 </div>
             ))}
         </div>

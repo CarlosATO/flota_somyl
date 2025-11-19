@@ -246,7 +246,17 @@ def list_mant_adjuntos(mant_id):
             .eq('mantenimiento_id', mant_id) \
             .order('created_at', desc=True) \
             .execute()
-        return jsonify({'data': res.data or []})
+        data = res.data or []
+        try:
+            for item in data:
+                sp = item.get('storage_path')
+                if sp:
+                    public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp)
+                    url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None)
+                    item['publicUrl'] = url
+        except Exception:
+            pass
+        return jsonify({'data': data or []})
     except Exception as e:
         current_app.logger.error(f"Error al listar adjuntos de mantenimiento {mant_id}: {e}")
         return jsonify({'message': 'Error al obtener adjuntos de mantenimiento'}), 500

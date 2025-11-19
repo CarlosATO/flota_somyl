@@ -566,6 +566,64 @@
   animation: slideUp 0.3s ease;
 }
 
+/* Scrollable viajes list inside modal */
+.viajes-scroll {
+  max-height: 42vh; /* roughly half modal height */
+  overflow-y: auto;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 8px;
+}
+
+.viajes-scroll .modal-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* Full size map modal variant */
+.modal-detalle.modal-map {
+  width: 90%;
+  max-width: 1400px;
+  height: 90vh;
+}
+
+/* Attachments / preview modal */
+.adjunto-thumb {
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.adjunto-thumb img {
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.adjunto-thumb:hover img { transform: scale(1.03); box-shadow: 0 6px 18px rgba(15,23,42,0.08); }
+.adjunto-placeholder { display:flex; align-items:center; justify-content:center; color: #6b7280; }
+
+.adjuntos-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.adjuntos-modal {
+  background: #fff;
+  border-radius: 10px;
+  width: 80%;
+  max-width: 980px;
+  box-shadow: 0 20px 40px rgba(2,6,23,0.2);
+}
+.adjuntos-modal-header { display:flex; justify-content:space-between; align-items:center; padding: 0.85rem 1rem; border-bottom: 1px solid #f1f5f9; }
+.adjuntos-modal-body { padding: 1rem; max-height: 80vh; overflow:auto; display:flex; align-items:center; justify-content:center; }
+
+.adjuntos-list .adjunto-item { display:flex; align-items:center; gap: 0.75rem; }
+.adjuntos-list .adjunto-name a, .adjuntos-list .adjunto-name .btn-link { color: var(--color-primary); text-decoration: underline; background: transparent; border: none; padding: 0; cursor: pointer; }
+
+.btn-link { background: transparent; border: none; color: var(--color-primary); text-decoration: underline; padding: 0; cursor: pointer; }
+
 @keyframes slideUp {
   from {
     opacity: 0;

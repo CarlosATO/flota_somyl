@@ -122,7 +122,49 @@ def get_vehiculo(veh_id):
         rows = res.data or []
         if not rows:
             return jsonify({'message': f'Vehículo con ID {veh_id} no encontrado o ha sido eliminado'}), 404
-        return jsonify({'data': rows[0]})
+
+        vehicle = rows[0]
+        # Compute km_actual: maximum of kilometraje_inicio and kilometraje_fin from orders for this vehicle
+        try:
+            orders_res = supabase.table('flota_ordenes').select('kilometraje_inicio, kilometraje_fin, estado').eq('vehiculo_id', veh_id).execute()
+            orders = orders_res.data or []
+            km_values = []
+            km_traveled_sum = 0
+            for o in orders:
+                ki = o.get('kilometraje_inicio')
+                kf = o.get('kilometraje_fin')
+                # Build candidate values for max odometer
+                for v in (ki, kf):
+                    if v is not None and v != '':
+                        try:
+                            km_values.append(int(float(v)))
+                        except Exception:
+                            pass
+
+                # Accumulate traveled distance only when both values are present and sensible
+                try:
+                    if o.get('estado') and str(o.get('estado')).lower() == 'completada' and ki is not None and kf is not None:
+                        ki_val = int(float(ki)) if ki != '' else None
+                        kf_val = int(float(kf)) if kf != '' else None
+                        if ki_val is not None and kf_val is not None and kf_val > ki_val:
+                            delta = kf_val - ki_val
+                            # Sanity: ignore unrealistically large deltas (e.g., > 10000km) to avoid data errors
+                            if delta >= 0 and delta < 100000:
+                                km_traveled_sum += delta
+                except Exception:
+                    # ignore any conversion errors
+                    pass
+
+            # km_actual: maximum known odometer reading, fallback to existing vehicle value or 0
+            vehicle['km_actual'] = max(km_values) if km_values else (vehicle.get('km_actual') or 0)
+            # km_recorridos: total distance recorded in completed orders
+            vehicle['km_recorridos'] = km_traveled_sum
+        except Exception as e:
+            current_app.logger.warning(f"No se pudo calcular km_actual para vehiculo {veh_id}: {e}")
+            # Ensure km_actual field exists
+            vehicle['km_actual'] = vehicle.get('km_actual') or 0
+
+        return jsonify({'data': vehicle})
     except Exception as e:
         current_app.logger.error(f"Error al obtener vehículo {veh_id}: {e}")
         return jsonify({'message': 'Error en la base de datos al obtener el vehículo'}), 500
@@ -238,6 +280,158 @@ def update_vehiculo(veh_id):
     except Exception as e:
         current_app.logger.error(f"Error inesperado al actualizar vehículo {veh_id}: {e}")
         return jsonify({'message': 'Error inesperado al actualizar vehículo', 'detail': str(e)}), 500
+
+
+@bp.route('/<int:veh_id>/viajes', methods=['GET'])
+@auth_required
+def get_vehiculo_viajes(veh_id):
+    """Obtiene viajes (órdenes) del vehículo, usando flota_ordenes y flota_orden_historial;
+    permite filtro por fecha (fecha_desde, fecha_hasta), paginado (per_page,page) y retorna adjuntos asociados.
+    """
+    supabase = current_app.config.get('SUPABASE')
+    if not supabase:
+        return jsonify({'status': 'error', 'message': 'Error de configuración: Supabase no disponible'}), 500
+
+    # Parámetros
+    fecha_desde = request.args.get('fecha_desde')
+    fecha_hasta = request.args.get('fecha_hasta')
+    try:
+        per_page = max(1, min(200, int(request.args.get('per_page', 50))))
+    except ValueError:
+        per_page = 50
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+
+    # 1) Obtener órdenes del vehículo
+    try:
+        query = supabase.table('flota_ordenes').select(
+            'id, fecha_inicio_programada, fecha_inicio_real, fecha_fin_real, origen, destino, kilometraje_inicio, kilometraje_fin, estado, conductor:flota_conductores(id,nombre,apellido)'
+        ).eq('vehiculo_id', veh_id).order('fecha_inicio_programada', desc=True)
+
+        # Implementamos paginado server-side simple
+        start = (page - 1) * per_page
+        end = start + per_page - 1
+        res = query.range(start, end).execute()
+        ordenes = res.data or []
+
+        # Para garantizar que no perdamos órdenes con historial, buscamos eventos en la tabla historial
+        orden_ids = [o.get('id') for o in ordenes if o.get('id')]
+        hist_by_order = {}
+
+        try:
+            # 1) Buscar historial de eventos para este vehículo directamente (para captar órdenes que no aparecen en la primera consulta por paginado)
+            hist_query = supabase.table('flota_orden_historial').select('orden_id, created_at, estado_nuevo, observacion, orden:flota_ordenes(id,vehiculo_id)')
+            hist_query = hist_query.in_('estado_nuevo', ['completada', 'cancelada'])
+            # Filtrar por foranea a vehiculo
+            hist_query = hist_query.eq('orden.vehiculo_id', veh_id)
+            if fecha_desde:
+                hist_query = hist_query.gte('created_at', fecha_desde)
+            if fecha_hasta:
+                hist_query = hist_query.lte('created_at', fecha_hasta)
+            hist_res = hist_query.order('created_at', desc=True).limit(per_page*3).execute()
+            hist_all = hist_res.data or []
+            hist_ids_from_vehicle = [h.get('orden_id') for h in hist_all if h.get('orden_id')]
+            # Merge these ids
+            for hid in hist_ids_from_vehicle:
+                if hid and hid not in orden_ids:
+                    orden_ids.append(hid)
+            # Now, also fetch detailed history events for these order ids
+            if orden_ids:
+                hist_events_res = supabase.table('flota_orden_historial').select('orden_id, created_at, estado_nuevo, observacion').in_('orden_id', orden_ids).in_('estado_nuevo', ['completada', 'cancelada']).order('created_at', desc=True).execute()
+                for h in hist_events_res.data or []:
+                    oid = h.get('orden_id')
+                    if oid and oid not in hist_by_order:
+                        hist_by_order[oid] = h
+        except Exception as e:
+            current_app.logger.warning(f"No fue posible obtener historial para ordenes: {e}")
+
+        # Si encontramos order ids adicionales desde el historial, obtener sus detalles
+        missing_ids = [oid for oid in orden_ids if oid not in [o.get('id') for o in ordenes]]
+        if missing_ids:
+            try:
+                extra_res = supabase.table('flota_ordenes').select('id, fecha_inicio_programada, fecha_inicio_real, fecha_fin_real, origen, destino, kilometraje_inicio, kilometraje_fin, estado, conductor:flota_conductores(id,nombre,apellido)').in_('id', missing_ids).execute()
+                ordenes += (extra_res.data or [])
+            except Exception as e:
+                current_app.logger.warning(f"No fue posible obtener detalles para ordenes extras: {e}")
+
+        # Adjuntos por orden
+        adjuntos_by_orden = {}
+        if orden_ids:
+            try:
+                adj_res = supabase.table('flota_orden_adjuntos').select('id, orden_id, storage_path, nombre_archivo, mime_type, created_at').in_('orden_id', orden_ids).order('created_at', desc=True).execute()
+                for a in adj_res.data or []:
+                    oid = a.get('orden_id')
+                    # Añadir publicUrl si es posible
+                    try:
+                        sp = a.get('storage_path')
+                        if sp:
+                            public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp)
+                            url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None)
+                            a['publicUrl'] = url
+                    except Exception:
+                        a['publicUrl'] = None
+                    if oid:
+                        adjuntos_by_orden.setdefault(oid, []).append(a)
+            except Exception as e:
+                current_app.logger.warning(f"No fue posible obtener adjuntos de ordenes: {e}")
+
+        # Procesar órdenes: añadir hist event y adjuntos; filtrar por fecha si recibido
+        resultado = []
+        for o in ordenes:
+            oid = o.get('id')
+            # Obtener la fecha de evento preferida: fecha_fin_real, fecha_inicio_real, fecha_inicio_programada, o el historial.created_at
+            fecha_cand = None
+            if o.get('fecha_fin_real'):
+                fecha_cand = o.get('fecha_fin_real')
+            elif o.get('fecha_inicio_real'):
+                fecha_cand = o.get('fecha_inicio_real')
+            elif o.get('fecha_inicio_programada'):
+                fecha_cand = o.get('fecha_inicio_programada')
+            elif hist_by_order.get(oid):
+                fecha_cand = hist_by_order[oid].get('created_at')
+
+            # Filtro por fecha si se solicitó
+            if fecha_desde or fecha_hasta:
+                try:
+                    if fecha_cand:
+                        from datetime import datetime
+                        fdate = datetime.fromisoformat(fecha_cand.replace('Z', '')) if 'Z' in str(fecha_cand) else datetime.fromisoformat(fecha_cand)
+                        if fecha_desde:
+                            ds = datetime.fromisoformat(fecha_desde)
+                            if fdate < ds:
+                                continue
+                        if fecha_hasta:
+                            he = datetime.fromisoformat(fecha_hasta)
+                            # incluir día entero
+                            if fdate > he:
+                                continue
+                except Exception:
+                    pass
+
+            o_res = {
+                'id': oid,
+                'origen': o.get('origen'),
+                'destino': o.get('destino'),
+                'fecha_inicio_programada': o.get('fecha_inicio_programada'),
+                'fecha_inicio_real': o.get('fecha_inicio_real'),
+                'fecha_fin_real': o.get('fecha_fin_real'),
+                'kilometraje_inicio': o.get('kilometraje_inicio'),
+                'kilometraje_fin': o.get('kilometraje_fin'),
+                'estado': o.get('estado'),
+                'conductor': o.get('conductor'),
+                'hist_event': hist_by_order.get(oid),
+                'adjuntos': adjuntos_by_orden.get(oid, [])
+            }
+            resultado.append(o_res)
+
+        return jsonify({'status': 'success', 'data': resultado, 'meta': {'total': len(resultado)}}), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error en get_vehiculo_viajes: {e}")
+        return jsonify({'status': 'error', 'message': 'Error al obtener viajes del vehículo'}), 500
+
 
 
 @bp.route('/<int:veh_id>', methods=['DELETE'])
@@ -501,12 +695,20 @@ def list_vehiculo_adjuntos(veh_id):
             try:
                 res_docs_adj = supabase.table('flota_vehiculo_doc_adjuntos').select('id, created_at, nombre_archivo, storage_path, mime_type, documento_id').in_('documento_id', doc_ids).order('created_at', desc=True).execute()
                 for item in res_docs_adj.data or []:
+                    # Add public URL
+                    try:
+                        sp = item.get('storage_path')
+                        public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp) if sp else None
+                        url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None) if public else None
+                    except Exception:
+                        url = None
                     all_adjuntos.append({
                         'id': item.get('id'),
                         'created_at': item.get('created_at'),
                         'nombre_archivo': item.get('nombre_archivo'),
                         'storage_path': item.get('storage_path'),
                         'mime_type': item.get('mime_type'),
+                        'publicUrl': url,
                         'tipo_entidad': 'Documento Vehicular',
                         'entidad_id': item.get('documento_id')
                     })
@@ -524,12 +726,19 @@ def list_vehiculo_adjuntos(veh_id):
             try:
                 res_ord_adj = supabase.table('flota_orden_adjuntos').select('id, created_at, nombre_archivo, storage_path, mime_type, orden_id').in_('orden_id', orden_ids).order('created_at', desc=True).execute()
                 for item in res_ord_adj.data or []:
+                    try:
+                        sp = item.get('storage_path')
+                        public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp) if sp else None
+                        url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None) if public else None
+                    except Exception:
+                        url = None
                     all_adjuntos.append({
                         'id': item.get('id'),
                         'created_at': item.get('created_at'),
                         'nombre_archivo': item.get('nombre_archivo'),
                         'storage_path': item.get('storage_path'),
                         'mime_type': item.get('mime_type'),
+                        'publicUrl': url,
                         'tipo_entidad': 'Orden de Servicio',
                         'entidad_id': item.get('orden_id')
                     })
@@ -547,12 +756,19 @@ def list_vehiculo_adjuntos(veh_id):
             try:
                 res_mant_adj = supabase.table('flota_mantenimiento_adjuntos').select('id, created_at, nombre_archivo, storage_path, mime_type, mantenimiento_id').in_('mantenimiento_id', mant_ids).order('created_at', desc=True).execute()
                 for item in res_mant_adj.data or []:
+                    try:
+                        sp = item.get('storage_path')
+                        public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp) if sp else None
+                        url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None) if public else None
+                    except Exception:
+                        url = None
                     all_adjuntos.append({
                         'id': item.get('id'),
                         'created_at': item.get('created_at'),
                         'nombre_archivo': item.get('nombre_archivo'),
                         'storage_path': item.get('storage_path'),
                         'mime_type': item.get('mime_type'),
+                        'publicUrl': url,
                         'tipo_entidad': 'Mantenimiento',
                         'entidad_id': item.get('mantenimiento_id')
                     })

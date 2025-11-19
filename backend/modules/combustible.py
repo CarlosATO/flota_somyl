@@ -13,6 +13,35 @@ from postgrest.exceptions import APIError as PostgrestAPIError
 
 bp = Blueprint('combustible', __name__)
 
+
+def _get_proyectos_client():
+    """Obtener o crear (desde env) el cliente de Proyectos.
+    Devuelve None si no está configurado. Logs claros para facilitar debugging en producción.
+    """
+    proyectos = current_app.config.get('PROYECTOS_SUPABASE')
+    if proyectos:
+        return proyectos
+
+    # Intentar crear desde variables de entorno (útil si no se creó en app.create_app)
+    url = os.environ.get('PROYECTOS_SUPABASE_URL')
+    key = os.environ.get('PROYECTOS_SUPABASE_KEY')
+    if not url or not key:
+        current_app.logger.warning('PROYECTOS_SUPABASE no configurado (env PROYECTOS_SUPABASE_URL/KEY ausente)')
+        return None
+
+    if not create_client:
+        current_app.logger.error('Librería supabase no disponible en el servidor; unable to create PROYECTOS_SUPABASE client')
+        return None
+
+    try:
+        client = create_client(url, key)
+        current_app.config['PROYECTOS_SUPABASE'] = client
+        current_app.logger.info('PROYECTOS_SUPABASE client creado dinámicamente desde env')
+        return client
+    except Exception as e:
+        current_app.logger.error(f'Error creando PROYECTOS_SUPABASE client desde env: {e}')
+        return None
+
 # === 1. HELPERS ===
 
 def _safe_int(value):
@@ -49,11 +78,12 @@ def _check_required_fields(payload: dict, required_fields: list) -> list:
 @auth_required
 def get_proyectos_activos():
     """Obtiene una lista de proyectos activos desde la DB externa. Filtra por activo=true."""
-    proyectos_supabase = current_app.config.get('PROYECTOS_SUPABASE')
-    
+    proyectos_supabase = _get_proyectos_client()
+
     if not proyectos_supabase:
-        current_app.logger.error('Error: Conexión a la base de datos de Proyectos no disponible.')
-        return jsonify({'message': 'Error: Conexión a la base de datos de Proyectos no disponible.'}), 500
+        # No romper la UI en producción: devolver lista vacía y flag para indicar que no hay conexión
+        current_app.logger.info('get_proyectos_activos: PROYECTOS_SUPABASE no disponible, devolviendo lista vacía')
+        return jsonify({'data': [], 'meta': {'projects_enabled': False}}), 200
 
     try:
         # Consulta: tabla 'proyectos', busca 'activo' = true, selecciona 'id' y 'proyecto'
@@ -61,11 +91,11 @@ def get_proyectos_activos():
             .eq('activo', True) \
             .order('proyecto', desc=False) \
             .execute()
-        
+
         # Formatear la data para el frontend (usando 'proyecto' como nombre)
         proyectos_limpios = [{'id': p['id'], 'nombre': p['proyecto']} for p in res.data or []]
-        
-        return jsonify({'data': proyectos_limpios}), 200
+
+        return jsonify({'data': proyectos_limpios, 'meta': {'projects_enabled': True}}), 200
 
     except Exception as e:
         current_app.logger.error(f"Error al obtener proyectos activos de DB externa: {e}")
@@ -249,7 +279,17 @@ def list_carga_adjuntos(carga_id):
             .eq('carga_id', carga_id) \
             .order('created_at', desc=True) \
             .execute()
-        return jsonify({'data': res.data or []})
+        data = res.data or []
+        try:
+            for item in data:
+                sp = item.get('storage_path')
+                if sp:
+                    public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp)
+                    url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None)
+                    item['publicUrl'] = url
+        except Exception:
+            pass
+        return jsonify({'data': data or []})
     except Exception:
         return jsonify({'message': 'Error al obtener adjuntos'}), 500
 
@@ -324,17 +364,10 @@ def delete_carga_adjunto(adjunto_id):
 def list_proyectos():
     """Obtiene lista de proyectos (desde la DB de proyectos configurada en .env)"""
     try:
-        # Preferir cliente cacheado en app config
-        proyectos_client = current_app.config.get('PROYECTOS_SUPABASE')
+        proyectos_client = _get_proyectos_client()
         if not proyectos_client:
-            url = os.environ.get('PROYECTOS_SUPABASE_URL')
-            key = os.environ.get('PROYECTOS_SUPABASE_KEY')
-            if not url or not key:
-                return jsonify({'message': 'Conexión a la base de datos de Proyectos no disponible.'}), 500
-            if not create_client:
-                return jsonify({'message': 'Librería supabase no disponible en el servidor'}), 500
-            proyectos_client = create_client(url, key)
-            current_app.config['PROYECTOS_SUPABASE'] = proyectos_client
+            current_app.logger.info('list_proyectos: PROYECTOS_SUPABASE no configurado; devolviendo lista vacía')
+            return jsonify({'data': [], 'meta': {'projects_enabled': False}}), 200
 
         # Intentamos obtener registros activos de la tabla 'orden_compra' o 'proyectos'
         # Primero intentamos 'orden_compra', si falla probamos 'proyectos'
@@ -349,7 +382,7 @@ def list_proyectos():
                 current_app.logger.error(f'Error consultando proyectos en Supabase: {e}')
                 return jsonify({'message': 'Error al consultar proyectos', 'detail': str(e)}), 500
 
-        return jsonify({'data': data}), 200
+        return jsonify({'data': data, 'meta': {'projects_enabled': True}}), 200
 
     except Exception as e:
         current_app.logger.error(f'Error en endpoint proyectos: {e}')

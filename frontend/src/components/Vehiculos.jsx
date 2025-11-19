@@ -145,6 +145,42 @@ const DocAdjuntosList = ({ adjuntos, loading, onDelete }) => {
             return data.publicUrl;
         } catch (e) { return '#'; }
     };
+    const openPreview = async (adj) => {
+        if (!adj) return;
+        if (adj.publicUrl) {
+            window.open(adj.publicUrl, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        try {
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                window.open(blobUrl, '_blank', 'noopener,noreferrer');
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+            } else console.error('Error fetching preview ', res.status);
+        } catch (e) { console.error('Error opening preview', e); }
+    };
+    const downloadAdjunto = async (adj) => {
+        try {
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const downloadUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = adj.nombre_archivo || 'file';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+            } else console.error('Error downloading adj: ', res.status);
+        } catch (e) { console.error('Error downloading adj', e); }
+    };
     
     if (loading) return <p className="loading-adjuntos">Cargando adjuntos...</p>
     if (adjuntos.length === 0) return <p className="loading-adjuntos">📂 No hay archivos adjuntos.</p>
@@ -158,19 +194,22 @@ const DocAdjuntosList = ({ adjuntos, loading, onDelete }) => {
                             {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
                         </span>
                         <span className="adjunto-name">
-                            <a href={getPublicUrl(adj.storage_path)} target="_blank" rel="noopener noreferrer">
+                            <button type="button" className="btn-link" onClick={() => openPreview(adj)}>
                                 {adj.nombre_archivo || adj.storage_path}
-                            </a>
+                            </button>
                         </span>
                     </div>
-                    <button 
-                        type="button" 
-                        className="adjunto-delete-btn"
-                        title="Eliminar adjunto"
-                        onClick={(e) => { e.stopPropagation(); onDelete(adj.id); }}
-                    >
-                        ×
-                    </button>
+                    <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+                        <button type="button" className="btn btn-tertiary" onClick={() => downloadAdjunto(adj)} title="Descargar">⬇️</button>
+                        <button 
+                            type="button" 
+                            className="adjunto-delete-btn"
+                            title="Eliminar adjunto"
+                            onClick={(e) => { e.stopPropagation(); onDelete(adj.id); }}
+                        >
+                            ×
+                        </button>
+                    </div>
                 </div>
             ))}
         </div>
@@ -734,6 +773,39 @@ function Vehiculos({ user, token }) {
         }
     }, [token, fetchVehiculos]);
 
+    // Check if there is an 'openVehiculoEdit' key (from other modules) and open modal accordingly
+    useEffect(() => {
+        const openFromStorage = () => {
+            try {
+                const raw = localStorage.getItem('openVehiculoEdit');
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                if (parsed && parsed.id) {
+                    // Do not fetch vehicle details to open the modal; just set minimal editingVehicle object and let the modal fetch docs
+                    setEditingVehicle({ id: parsed.id });
+                    setShowModal(true);
+                    localStorage.removeItem('openVehiculoEdit');
+                }
+            } catch (e) { localStorage.removeItem('openVehiculoEdit'); }
+        };
+        // Try once on mount
+        openFromStorage();
+        // And listen for navigation events while mounted
+        const handler = (e) => {
+            try {
+                const detail = e.detail || {};
+                if (detail.module === 'vehiculos') {
+                    // Reload list when we navigate here
+                    fetchVehiculos();
+                    // If an edit ID is present in localStorage, open modal
+                    openFromStorage();
+                }
+            } catch (err) { console.error('Nav handler error', err); }
+        };
+        window.addEventListener('app-navigate', handler);
+        return () => { window.removeEventListener('app-navigate', handler); };
+    }, [token, fetchVehiculos]);
+
     const handleFormSubmit = async (formData, vehiculoId) => {
         setSubmitting(true);
         setFormError(null);
@@ -803,16 +875,69 @@ function Vehiculos({ user, token }) {
         setAttachmentsList([]);
     };
 
-    const openPreview = (adj) => {
+    const openPreview = async (adj) => {
         try {
-            const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path);
-            setPreview({ open: true, url: data.publicUrl || '#', name: adj.nombre_archivo, mime: adj.mime_type });
+            if (!adj) return;
+            // Prefer backend-provided publicUrl
+            if (adj.publicUrl) {
+                setPreview({ open: true, url: adj.publicUrl, name: adj.nombre_archivo, mime: adj.mime_type });
+                return;
+            }
+            // Try using Supabase getPublicUrl (public bucket)
+            try {
+                const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path);
+                if (data && data.publicUrl) {
+                    setPreview({ open: true, url: data.publicUrl, name: adj.nombre_archivo, mime: adj.mime_type });
+                    return;
+                }
+            } catch (e) { /* ignore, fallback to download */ }
+
+            // Fall back to backend download and create a blob URL
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                setPreview({ open: true, url: blobUrl, name: adj.nombre_archivo, mime: blob.type });
+                // Revoke after some time (handled when modal is closed)
+            } else {
+                console.error('Error al descargar para preview', res.status);
+                setPreview({ open: true, url: '#', name: adj.nombre_archivo, mime: adj.mime_type });
+            }
         } catch (e) {
-            setPreview({ open: true, url: '#', name: adj.nombre_archivo, mime: adj.mime_type });
+            console.error('Error opening preview', e);
+            setPreview({ open: true, url: '#', name: adj?.nombre_archivo || '', mime: adj?.mime_type || '' });
         }
     };
 
-    const closePreview = () => setPreview({ open: false, url: '#', name: '', mime: '' });
+    const downloadAdjunto = async (adj) => {
+        try {
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const downloadUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = adj.nombre_archivo || 'file';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+            } else console.error('Error downloading adj: ', res.status);
+        } catch (e) { console.error('Error downloading adj', e); }
+    };
+
+    const closePreview = () => {
+        try {
+            if (preview && preview.url && preview.url.startsWith('blob:')) {
+                URL.revokeObjectURL(preview.url);
+            }
+        } catch (e) { /* ignore */ }
+        setPreview({ open: false, url: '#', name: '', mime: '' });
+    };
 
     if (!token) {
         return (
@@ -970,7 +1095,7 @@ function Vehiculos({ user, token }) {
                                             </div>
                                             <div style={{display: 'flex', gap: '0.5rem'}}>
                                                 <button className="btn btn-primary" onClick={() => openPreview(adj)}>👁️ Ver</button>
-                                                <a className="btn btn-secondary" href={(() => { try { const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path); return data.publicUrl || '#'; } catch(e){ return '#'; } })()} target="_blank" rel="noopener noreferrer">Abrir</a>
+                                                <button className="btn btn-secondary" onClick={() => openPreview(adj)}>Abrir</button>
                                                 <button className="btn" onClick={async () => { 
                                                     try {
                                                         const token = localStorage.getItem('token');

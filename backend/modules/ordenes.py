@@ -364,7 +364,19 @@ def list_adjuntos(orden_id):
             .eq('orden_id', orden_id) \
             .order('created_at', desc=True) \
             .execute()
-        return jsonify({'data': res.data or []})
+        data = res.data or []
+        # Añadir public_url a cada adjunto si es posible
+        try:
+            for item in data:
+                sp = item.get('storage_path')
+                if sp:
+                    public = supabase.storage.from_('adjuntos_ordenes').get_public_url(sp)
+                    url = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None)
+                    item['publicUrl'] = url
+        except Exception:
+            # No crítico: si falla, el cliente puede construir URL si lo desea
+            pass
+        return jsonify({'data': data})
     except Exception as e:
         return jsonify({'message': 'Error al obtener adjuntos'}), 500
 
@@ -698,6 +710,22 @@ def finalizar_viaje_conductor(orden_id):
                 user.get('id'),
                 f'Viaje finalizado desde App Móvil con KM {km_fin_int}'
             )
+            # Try to update the vehicle's km_actual in flota_vehiculos if such field exists.
+            try:
+                veh_id = orden.get('vehiculo_id')
+                if veh_id:
+                    # Attempt to update to the greater of existing km_actual or km_fin_int (if column exists)
+                    try:
+                        current_res = supabase.table('flota_vehiculos').select('id, km_actual').eq('id', veh_id).limit(1).execute()
+                        current_row = current_res.data[0] if current_res.data else None
+                        current_km = current_row.get('km_actual') if current_row else None
+                        new_km = km_fin_int if not current_km or int(current_km) < km_fin_int else int(current_km)
+                        # Try to update: if column doesn't exist, supabase will raise an error that we catch
+                        supabase.table('flota_vehiculos').update({'km_actual': new_km}).eq('id', veh_id).execute()
+                    except Exception as e:
+                        current_app.logger.debug(f"No se pudo actualizar columna 'km_actual' para vehiculo {veh_id}. Es posible que la columna no exista: {e}")
+            except Exception:
+                pass
             return jsonify({'data': res_update.data[0], 'message': 'Viaje finalizado correctamente'}), 200
         else:
             return jsonify({'message': 'No se pudo actualizar la orden'}), 500
@@ -803,8 +831,19 @@ def get_ruta_gps(orden_id):
             .eq('orden_id', orden_id) \
             .order('timestamp', desc=False) \
             .execute()
-            
         data = res.data or []
+        # Sampling: limit points to a reasonable number for web maps
+        try:
+            max_points = int(request.args.get('max_points', 800))
+        except ValueError:
+            max_points = 800
+        if len(data) > max_points and max_points > 0:
+            # Simple downsample by evenly selecting points
+            step = max(1, len(data) // max_points)
+            data = [data[i] for i in range(0, len(data), step)]
+            # Ensure the last point is included
+            if data[-1] != (res.data or [])[-1]:
+                data.append((res.data or [])[-1])
         return jsonify({'data': data}), 200
 
     except Exception as e:

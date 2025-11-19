@@ -85,7 +85,7 @@ function Adjuntos({ token }) {
         setModalAdjunto(adj);
         setPreviewLoading(true);
         try {
-            const url = getPublicUrl(adj.storage_path);
+            const url = adj.publicUrl || getPublicUrl(adj.storage_path);
             setModalUrl(url || '#');
             setModalOpen(true);
         } catch (e) {

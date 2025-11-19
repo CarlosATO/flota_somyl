@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api';
 import { supabase } from '../lib/supabase';
-import MapaRuta from './MapaRuta.jsx';
+import MapaModal from './MapaModal.jsx';
 import './Reportes.css';
 
 function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
@@ -19,9 +19,14 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
     const [loadingRuta, setLoadingRuta] = useState(false);
     const [rutaPuntos, setRutaPuntos] = useState([]);
     const [mapOrdenId, setMapOrdenId] = useState(null);
+    const [showMapaModal, setShowMapaModal] = useState(false);
     const [adjuntosByOrden, setAdjuntosByOrden] = useState({});
+    const [previewOpen, setPreviewOpen] = useState(false);
+    const [previewUrl, setPreviewUrl] = useState(null);
+    const [previewMime, setPreviewMime] = useState(null);
     const [loadingAdjuntosMap, setLoadingAdjuntosMap] = useState({});
-    const [openTab, setOpenTab] = useState('overview');
+    const [openTab, setOpenTab] = useState('resumen');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
     const fetchData = useCallback(async () => {
         if (!open || !vehiculoId) return;
@@ -42,7 +47,8 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
             params.append('page', 1);
             // Solo completadas/canceladas
             // No pasar estado multiple (la API acepta valor simple). Obtendremos y filtraremos en cliente
-            const resViajes = await apiFetch(`/api/ordenes?${params.toString()}`);
+            // Use new consolidated endpoint for vehicle trips
+            const resViajes = await apiFetch(`/api/vehiculos/${vehiculoId}/viajes?${params.toString()}`);
             if (resViajes.status === 200) {
                 const all = resViajes.data.data || [];
                 // Filter by state and by date window (fecha_inicio_real | fecha_fin_real | fecha_inicio_programada)
@@ -92,7 +98,7 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
             if (fechaDesde) params.append('fecha_desde', fechaDesde);
             if (fechaHasta) params.append('fecha_hasta', fechaHasta);
                 // No pasar estado, filtraremos en el cliente si es necesario
-            const resViajes = await apiFetch(`/api/ordenes?${params.toString()}`);
+            const resViajes = await apiFetch(`/api/vehiculos/${vehiculoId}/viajes?${params.toString()}`);
             if (resViajes.status === 200) {
                 const all = resViajes.data.data || [];
                 const filtered = all.filter(v => ['completada', 'cancelada'].includes(String(v.estado).toLowerCase()));
@@ -109,9 +115,11 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
         setMapOrdenId(ordenId);
         setLoadingRuta(true);
         try {
-            const res = await apiFetch(`/api/ordenes/${ordenId}/ruta`);
+            const maxPoints = 800;
+            const res = await apiFetch(`/api/ordenes/${ordenId}/ruta?max_points=${maxPoints}`);
             if (res.status === 200) setRutaPuntos(res.data.data || []);
-            setOpenTab('viajes');
+            // Open the large separate modal to display route
+            setShowMapaModal(true);
         } catch (e) {
             console.error('Error cargando ruta', e);
         } finally {
@@ -134,12 +142,14 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
                 const data = res.data.data || [];
                 // Build public URL for each using Supabase storage client
                 const mapped = data.map(a => {
-                    let publicUrl = null;
-                    try {
-                        const urlRes = supabase.storage.from('adjuntos_ordenes').getPublicUrl(a.storage_path);
-                        publicUrl = (urlRes && urlRes.data && urlRes.data.publicUrl) || urlRes?.publicUrl || null;
-                    } catch (e) {
-                        console.error('Error generando publicUrl', e);
+                    let publicUrl = a.publicUrl || null;
+                    if (!publicUrl) {
+                        try {
+                            const urlRes = supabase.storage.from('adjuntos_ordenes').getPublicUrl(a.storage_path);
+                            publicUrl = (urlRes && urlRes.data && urlRes.data.publicUrl) || urlRes?.publicUrl || null;
+                        } catch (e) {
+                            console.error('Error generando publicUrl', e);
+                        }
                     }
                     return { ...a, publicUrl };
                 });
@@ -152,9 +162,68 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
         }
     };
 
+    const openPreview = async (adj) => {
+        setPreviewMime(null);
+        // If the backend returned a publicUrl, use it directly
+        if (adj.publicUrl) {
+            setPreviewUrl(adj.publicUrl);
+            setPreviewOpen(true);
+            return;
+        }
+        // Otherwise, download via backend (requires Authorization token)
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                setPreviewUrl(blobUrl);
+                setPreviewMime(blob.type);
+                setPreviewOpen(true);
+            } else {
+                console.error('Error descargando archivo para preview', res.status);
+            }
+        } catch (e) {
+            console.error('Error preview adjunto: ', e);
+        }
+    }
+
+    const closePreview = () => {
+        if (previewUrl && !previewUrl.startsWith('http')) {
+            // It's a blob created by us; revoke
+            try { URL.revokeObjectURL(previewUrl); } catch (e) {}
+        }
+        setPreviewUrl(null);
+        setPreviewMime(null);
+        setPreviewOpen(false);
+    };
+
+    const downloadAdjunto = async (adj) => {
+        try {
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const downloadUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = adj.nombre_archivo || 'file';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+            } else {
+                console.error('Error al descargar adjunto: ', res.status);
+            }
+        } catch (e) { console.error('Error descargando adjunto', e); }
+    }
+
     if (!open) return null;
 
     return (
+        <>
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-detalle" onClick={(e) => e.stopPropagation()} style={{maxWidth: '1000px'}}>
                 <div className="modal-header-detalle">
@@ -169,16 +238,19 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
 
                 <div style={{padding: '1rem 1.5rem'}}>
                     <div className="modal-tabs" style={{marginBottom: '1rem'}}>
-                        <button className={`tab-button ${openTab === 'overview' ? 'active' : ''}`} onClick={() => setOpenTab('overview')}>📋 Overview</button>
+                        <button className={`tab-button ${openTab === 'resumen' ? 'active' : ''}`} onClick={() => setOpenTab('resumen')}>📋 Resumen</button>
                         <button className={`tab-button ${openTab === 'documentos' ? 'active' : ''}`} onClick={() => setOpenTab('documentos')}>📃 Documentos</button>
                         <button className={`tab-button ${openTab === 'viajes' ? 'active' : ''}`} onClick={() => setOpenTab('viajes')}>🧭 Viajes</button>
                     </div>
 
                     {loading && <div className="loading-state">Cargando detalles...</div>}
+                    {!token && (
+                        <div className="error-state" style={{marginTop: '0.5rem'}}>⚠️ No hay sesión activa. Inicia sesión para ver viajes y adjuntos.</div>
+                    )}
 
                     {!loading && (
                         <div>
-                            {openTab === 'overview' && (
+                            {openTab === 'resumen' && (
                                 <div className="form-section-pro">
                                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12}}>
                                         <div>
@@ -200,9 +272,23 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
                                         <div>{vehiculo?.km_actual ? `${vehiculo.km_actual} km` : '0 km'}</div>
                                     </div>
 
+                                    <div style={{marginTop: 8}}>
+                                        <strong>KM Recorridos (registrados)</strong>
+                                        <div>{vehiculo?.km_recorridos ? `${vehiculo.km_recorridos} km` : '0 km'}</div>
+                                    </div>
+
                                     <div style={{marginTop: 12, display: 'flex', gap: 12}}>
-                                        <button className="btn btn-primary">Editar Vehículo</button>
-                                        <button className="btn btn-secondary" onClick={() => window.open(`/vehiculos/${vehiculoId}`, '_blank')}>Ver página</button>
+                                        <button className="btn btn-primary" onClick={() => {
+                                            // Request the app to navigate to the Vehículos module and open edit modal
+                                            try {
+                                                if (typeof window !== 'undefined') {
+                                                    window.localStorage.setItem('openVehiculoEdit', JSON.stringify({ id: vehiculoId }));
+                                                    window.dispatchEvent(new CustomEvent('app-navigate', { detail: { module: 'vehiculos' } }));
+                                                }
+                                            } catch (e) { console.error('Error navigating to vehiculos', e); }
+                                            onClose();
+                                        }}>Editar Vehículo</button>
+                                        {/* Eliminado el botón Ver página (evitaba navegación indeseada) */}
                                     </div>
                                 </div>
                             )}
@@ -258,22 +344,25 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
 
                                         <button className="btn btn-secondary" onClick={handleReloadViajes}>Filtrar</button>
                                     </div>
+                                    <div style={{marginBottom: 8}}>
+                                        <strong>Total KM (en esta lista):</strong> {viajes.reduce((acc, v) => acc + ((v.kilometraje_fin && v.kilometraje_inicio) ? (v.kilometraje_fin - v.kilometraje_inicio) : 0), 0)} km
+                                    </div>
 
                                     {viajes.length === 0 ? (
                                         <div className="empty-state-report">No hay viajes.</div>
                                     ) : (
-                                        <table className="modal-table">
+                                        <div className="viajes-scroll">
+                                            <table className="modal-table">
                                             <thead>
                                                 <tr>
-                                                    <th>ID</th>
-                                                    <th>Fecha Inicio</th>
-                                                    <th>Fecha Fin</th>
-                                                    <th>Origen → Destino</th>
-                                                    <th>KMs</th>
-                                                    <th>Conductor</th>
-                                                        <th>Acciones</th>
-                                                        <th>Fotos</th>
-                                                </tr>
+                                                        <th>ID</th>
+                                                        <th>Fecha Inicio</th>
+                                                        <th>Fecha Fin</th>
+                                                        <th>Origen → Destino</th>
+                                                        <th>KMs</th>
+                                                        <th>Conductor</th>
+                                                        <th>Ruta realizada</th>
+                                                    </tr>
                                             </thead>
                                             <tbody>
                                                 {viajes.map(v => (
@@ -285,26 +374,16 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
                                                         <td>{(v.kilometraje_fin && v.kilometraje_inicio) ? `${v.kilometraje_fin - v.kilometraje_inicio} km` : '-'}</td>
                                                         <td>{v.conductor ? `${v.conductor.nombre} ${v.conductor.apellido}` : '-'}</td>
                                                         <td>
-                                                            <button className="btn btn-secondary" onClick={() => window.open(`/ordenes/${v.id}`, '_blank')}>Ver Orden</button>
-                                                            <button className="btn btn-primary" onClick={() => handleVerMapa(v.id)} style={{marginLeft: 8}}>Ver Mapa</button>
-                                                        </td>
-                                                        <td>
-                                                            <button className="btn btn-secondary" onClick={() => handleVerAdjuntos(v.id)}>{adjuntosByOrden[v.id] ? 'Ver Fotos' : 'Cargar Fotos'}</button>
+                                                            <button className="btn btn-primary" onClick={() => handleVerMapa(v.id)}>Ver Mapa</button>
                                                         </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
-                                        </table>
-                                    )}
-
-                                    {mapOrdenId && (
-                                        <div style={{marginTop: 16}}>
-                                            <h4>Ruta Orden #{mapOrdenId}</h4>
-                                            {loadingRuta ? <div className="loading-state">Cargando mapa...</div> : (
-                                                <MapaRuta puntos={rutaPuntos} />
-                                            )}
+                                            </table>
                                         </div>
                                     )}
+
+                                    {/* Inline map removed in favor of a separate modal */}
 
                                     {/* Adjuntos por orden (si se cargaron) */}
                                     {Object.keys(adjuntosByOrden).length > 0 && ( 
@@ -314,11 +393,30 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
                                                 <div key={ordenId} style={{marginBottom: 12}}>
                                                     <h5>Orden #{ordenId}</h5>
                                                     <div style={{display: 'flex', gap: 8, flexWrap: 'wrap'}}>
-                                                        {arr.length === 0 ? <small>No hay archivos adjuntos</small> : arr.map(a => (
-                                                            <a key={a.id} href={a.publicUrl} target="_blank" rel="noopener noreferrer">
-                                                                <img src={a.publicUrl} alt={a.nombre_archivo} style={{width: 120, height: 80, objectFit: 'cover', borderRadius: 6}} />
-                                                            </a>
-                                                        ))}
+                                                                {arr.length === 0 ? <small>No hay archivos adjuntos</small> : arr.map(a => (
+                                                                    <div key={a.id} style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+                                                                        <button className="adjunto-thumb" onClick={() => openPreview(a)}>
+                                                                            {a.publicUrl ? (
+                                                                                <img src={a.publicUrl} alt={a.nombre_archivo} style={{width: 120, height: 80, objectFit: 'cover', borderRadius: 6}} />
+                                                                            ) : (
+                                                                                <div className="adjunto-placeholder" style={{width: 120, height: 80, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:6, background: '#f3f4f6'}}>
+                                                                                    📁
+                                                                                </div>
+                                                                            )}
+                                                                        </button>
+                                                                        <div style={{display: 'flex', flexDirection: 'column', gap: 6}}>
+                                                                            <div style={{fontWeight: 600}}>{a.nombre_archivo}</div>
+                                                                            <div style={{display: 'flex', gap: 8}}>
+                                                                                {a.publicUrl ? (
+                                                                                    <a className="btn btn-secondary" href={a.publicUrl} target="_blank" rel="noopener noreferrer">Abrir</a>
+                                                                                ) : (
+                                                                                    <button className="btn btn-secondary" onClick={() => openPreview(a)}>Ver</button>
+                                                                                )}
+                                                                                <button className="btn" onClick={() => downloadAdjunto(a)}>⬇️</button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
                                                     </div>
                                                 </div>
                                             ))}
@@ -331,6 +429,41 @@ function DetalleVehiculoModal({ vehiculoId, open, onClose }) {
                 </div>
             </div>
         </div>
+        <MapaModal
+            open={showMapaModal}
+            title={mapOrdenId ? `Ruta realizada - Orden #${mapOrdenId}` : 'Ruta realizada'}
+            onClose={() => setShowMapaModal(false)}
+            puntos={rutaPuntos}
+            loading={loadingRuta}
+        />
+
+        {/* Adjuntos preview modal */}
+        {previewOpen && (
+            <div className="adjuntos-modal-overlay" onClick={(e) => { if (e.target.classList.contains('adjuntos-modal-overlay')) closePreview(); }}>
+                <div className="adjuntos-modal">
+                    <div className="adjuntos-modal-header">
+                        <div><strong>Vista previa: {vehiculo?.placa || ''}</strong></div>
+                        <div>
+                            <button className="btn-close-modal" onClick={closePreview}>✕</button>
+                        </div>
+                    </div>
+                    <div className="adjuntos-modal-body">
+                        {previewUrl ? (
+                            previewMime && previewMime.startsWith('image') ? (
+                                <img src={previewUrl} alt="Preview" style={{width: '100%', height: 'auto', borderRadius: 8}} />
+                            ) : (
+                                <div style={{padding: 16}}>
+                                    <a className="btn btn-primary" href={previewUrl} target="_blank" rel="noopener noreferrer">Abrir archivo</a>
+                                </div>
+                            )
+                        ) : (
+                            <div className="loading-state">Cargando...</div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
+        </>
     );
 }
 

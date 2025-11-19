@@ -23,6 +23,8 @@ def create_app():
     else:
         app = Flask(__name__)
         app.logger.warning(f'⚠️ No se encontró el directorio dist en {dist_path}')
+    # Desactivar redirecciones automáticas (308/301) por trailing slashes que pueden eliminar headers
+    app.url_map.strict_slashes = False
     CORS(app)
 
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')

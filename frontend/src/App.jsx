@@ -39,6 +39,22 @@ function App(){
     })()
   }, [])
 
+  // Allow external components to trigger navigation via a CustomEvent
+  useEffect(() => {
+    const handler = (e) => {
+      try {
+        const detail = e.detail || {};
+        if (detail.module) {
+          setActiveModule(detail.module);
+        }
+      } catch (err) {
+        console.error('Error processing app-navigate event', err);
+      }
+    };
+    window.addEventListener('app-navigate', handler);
+    return () => window.removeEventListener('app-navigate', handler);
+  }, []);
+
   const handleLogin = (userData, userToken) => {
     setUser(userData)
     setToken(userToken)

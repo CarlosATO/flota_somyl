@@ -257,8 +257,9 @@ def get_detalle_vehiculos():
 
         ordenes = res_ordenes.data or []
 
-        # 3. Calcular KM máximo por vehículo
+        # 3. Calcular KM máximo por vehículo y KM total recorrido (sum of deltas)
         km_por_vehiculo = {}
+        km_recorridos_por_vehiculo = {}
         for orden in ordenes:
             vehiculo_id = orden.get('vehiculo_id')
             if not vehiculo_id:
@@ -286,11 +287,24 @@ def get_detalle_vehiculos():
                     km_por_vehiculo[vehiculo_id] = km_max
                 else:
                     km_por_vehiculo[vehiculo_id] = max(km_por_vehiculo[vehiculo_id], km_max)
+            # Sum deltas (kilometraje_fin - kilometraje_inicio) for completed orders
+            try:
+                if orden.get('kilometraje_inicio') is not None and orden.get('kilometraje_fin') is not None:
+                    ki_val = int(float(orden.get('kilometraje_inicio')))
+                    kf_val = int(float(orden.get('kilometraje_fin')))
+                    if kf_val > ki_val and orden.get('estado') and str(orden.get('estado')).lower() == 'completada':
+                        delta = kf_val - ki_val
+                        # sanity guard
+                        if delta >= 0 and delta < 100000:
+                            km_recorridos_por_vehiculo[vehiculo_id] = km_recorridos_por_vehiculo.get(vehiculo_id, 0) + delta
+            except Exception:
+                pass
 
-        # 4. Agregar KM actual a cada vehículo
+        # 4. Agregar KM actual y km_recorridos a cada vehículo
         for vehiculo in vehiculos:
             vehiculo_id = vehiculo.get('id')
             vehiculo['km_actual'] = km_por_vehiculo.get(vehiculo_id, 0)
+            vehiculo['km_recorridos'] = km_recorridos_por_vehiculo.get(vehiculo_id, 0)
         
         return jsonify({
             'status': 'success',

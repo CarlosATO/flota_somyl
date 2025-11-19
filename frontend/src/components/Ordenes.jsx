@@ -344,6 +344,48 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
         }
     };
 
+    const openPreview = async (adj) => {
+        if (!adj) return;
+        if (adj.publicUrl) {
+            window.open(adj.publicUrl, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        try {
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                window.open(blobUrl, '_blank', 'noopener,noreferrer');
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+            } else {
+                console.error('Error fetching preview', res.status);
+            }
+        } catch (e) { console.error('Error opening preview', e); }
+    };
+
+    const downloadAdjunto = async (adj) => {
+        try {
+            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
+            if (res.ok) {
+                const blob = await res.blob();
+                const downloadUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = adj.nombre_archivo || 'file';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+            } else {
+                console.error('Error downloading adjunto: ', res.status);
+            }
+        } catch (e) { console.error('Error downloaded adjunto', e); }
+    };
+
     const isFormInvalid = requiredFields.some(field => !form[field]);
     const canUploadFiles = true;
 
@@ -473,27 +515,30 @@ const OrdenFormModal = ({ isOpen, onClose, onSave, editingOrden, apiError, submi
                                             <p className="loading-adjuntos">Cargando adjuntos...</p>
                                         ) : (
                                             adjuntos.map(adj => (
-                                                <div key={adj.id} className="adjunto-item">
-                                                    <div className="adjunto-info">
-                                                        <span className="adjunto-icon">
-                                                            {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
-                                                        </span>
-                                                        <span className="adjunto-name">
-                                                            <a href={getPublicUrl(adj.storage_path)} target="_blank" rel="noopener noreferrer">
-                                                                {adj.nombre_archivo || adj.storage_path}
-                                                            </a>
-                                                        </span>
+                                                    <div key={adj.id} className="adjunto-item">
+                                                        <div className="adjunto-info">
+                                                            <span className="adjunto-icon">
+                                                                {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
+                                                            </span>
+                                                            <span className="adjunto-name">
+                                                                <button type="button" className="btn-link" onClick={() => openPreview(adj)}>
+                                                                    {adj.nombre_archivo || adj.storage_path}
+                                                                </button>
+                                                            </span>
+                                                        </div>
+                                                        <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+                                                            <button type="button" className="btn btn-tertiary" onClick={() => downloadAdjunto(adj)} title="Descargar">⬇️</button>
+                                                            <button 
+                                                                type="button" 
+                                                                className="adjunto-delete-btn"
+                                                                title="Eliminar adjunto"
+                                                                onClick={() => handleDeleteAdjunto(adj.id)}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                    <button 
-                                                        type="button" 
-                                                        className="adjunto-delete-btn"
-                                                        title="Eliminar adjunto"
-                                                        onClick={() => handleDeleteAdjunto(adj.id)}
-                                                    >
-                                                        ×
-                                                    </button>
-                                                </div>
-                                            ))
+                                                ))
                                         )}
                                         {!loadingAdjuntos && adjuntos.length === 0 && (
                                             <p className="loading-adjuntos">📂 No hay archivos adjuntos aún.</p>
@@ -655,7 +700,6 @@ function Ordenes({ user, token }) {
         setFormError(null);
         
         // Esta lógica ahora es 100% correcta gracias al arreglo anterior.
-        // Si ordenId tiene un valor (sea de edición o borrador), hará un PUT.
         // Si ordenId es null (creación limpia sin foto), hará un POST.
         const url = ordenId ? `/api/ordenes/${ordenId}` : '/api/ordenes/';
         const method = ordenId ? 'PUT' : 'POST';
@@ -712,7 +756,7 @@ function Ordenes({ user, token }) {
         setShowMapa(true);
         setLoadingMapa(true);
         try {
-            const res = await apiFetch(`/api/ordenes/${orden.id}/ruta`);
+            const res = await apiFetch(`/api/ordenes/${orden.id}/ruta?max_points=800`);
             if (res && res.status === 200) {
                 setRutaData(res.data.data || []);
             }
