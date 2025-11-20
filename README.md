@@ -85,6 +85,64 @@ flotas/
 
 ## 🚀 Instalación y Desarrollo Local
 
+## 🫀 Resumen Ejecutivo (Corazón)
+
+Backend / Framework: Python + Flask (app inicializada en `backend/app.py`).
+
+Dependencias clave: Flask, flask-cors, supabase (cliente Python), PyJWT, werkzeug, gunicorn y requests. (ver `requirements.txt`).
+
+Identidad Actual (Login / Sesión)
+- Autenticación: JWT emitido por `POST /auth/login` con PyJWT.
+- Almacenamiento cliente: token guardado en `localStorage` (key: `token`) por el frontend (`Login.jsx`).
+- Uso en peticiones: las llamadas protegidas usan header `Authorization: Bearer <token>`; el helper `frontend/src/lib/api.js` lo agrega automáticamente.
+- Sesiones servidor: Stateless — no hay sesiones en servidor; `auth_required` valida token y setea `g.current_user`.
+
+Base de Datos
+- Proveedor: Supabase (Postgres) — cliente en `backend/app.py`.
+- Tablas clave: `flota_usuarios`, `flota_vehiculos`, `flota_ordenes`, `flota_orden_adjuntos`, `flota_mantenimientos`, `flota_mantenimiento_adjuntos`.
+
+Storage / Adjuntos
+- Archivos almacenados en buckets de Supabase (ej.: `adjuntos_ordenes`).
+- El backend intenta obtener `publicUrl` o un `signed_url` al exponer adjuntos; hay un proxy en `GET /api/adjuntos/download` que streama el archivo con `Content-Disposition` para forzar la descarga.
+
+Permisos y Acceso
+- El proyecto usa roles ('cargo') y helpers: `_has_write_permission`, `_is_admin` en `utils/auth.py`.
+- `auth_required` protege la mayoría de endpoints REST.
+
+Seguridad / Recomendaciones
+- Considerar usar cookies HttpOnly con refresh tokens para reducir la exposición del JWT a XSS.
+- Añadir `SameSite` y `Secure` si vacunas cookies; rotar keys y añadir logout server-side si se requiere seguridad avanzada.
+- Añadir `Content-Security-Policy` y pruebas E2E para endpoints sensibles.
+
+¿Quieres que agregue ejemplos curl para login y peticiones autenticadas? Están añadidos abajo.
+
+### Ejemplos curl — login y petición protegida
+
+1) Login (obtener token):
+
+```bash
+curl -s -X POST "http://localhost:5001/auth/login" \
+   -H "Content-Type: application/json" \
+   -d '{"email":"usuario@ejemplo.com","password":"tu-contraseña"}'
+```
+
+2) Probar endpoint protegido `/auth/me` con token:
+
+```bash
+TOKEN="<AQUI_TU_TOKEN>"
+curl -s -X GET "http://localhost:5001/auth/me" \
+   -H "Authorization: Bearer $TOKEN"
+```
+
+3) Descargar adjunto (proxy backend):
+
+```bash
+TOKEN="<AQUI_TU_TOKEN>"
+curl -s -X GET "http://localhost:5001/api/adjuntos/download?path=mi/archivo.jpg&name=foto.jpg" \
+   -H "Authorization: Bearer $TOKEN" -o foto.jpg
+```
+
+
 ### Prerrequisitos
 - Python 3.11+
 - Node.js 18+
