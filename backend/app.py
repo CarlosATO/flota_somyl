@@ -8,22 +8,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def create_app():
-    # Si existe un build de Vite en ../frontend/dist, configuramos Flask para servirlo
-    base_dir = os.path.abspath(os.path.dirname(__file__))
-    dist_path = os.path.normpath(os.path.join(base_dir, '..', 'frontend', 'dist'))
-    
-    print(f"Base dir: {base_dir}")
-    print(f"Looking for dist at: {dist_path}")
-    print(f"Dist exists: {os.path.isdir(dist_path)}")
-    if os.path.isdir(dist_path):
-        print(f"Dist contents: {os.listdir(dist_path)}")
-    
-    if os.path.isdir(dist_path):
+    # --- CAMBIO: Lógica robusta para encontrar el Frontend en Docker o en local ---
+    # 1. Intentamos la ruta absoluta de Docker (la más segura en Railway)
+    docker_dist = '/app/frontend/dist'
+
+    # 2. Intentamos la ruta relativa (para desarrollo local)
+    local_dist = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist'))
+
+    if os.path.isdir(docker_dist):
+        dist_path = docker_dist
         app = Flask(__name__, static_folder=dist_path, static_url_path='')
-        app.logger.info(f'🔷 Servidor en modo producción: sirviendo frontend estático desde {dist_path}')
+        app.logger.info(f'🚀 Modo Docker: Sirviendo frontend desde {dist_path}')
+    elif os.path.isdir(local_dist):
+        dist_path = local_dist
+        app = Flask(__name__, static_folder=dist_path, static_url_path='')
+        app.logger.info(f'💻 Modo Local: Sirviendo frontend desde {dist_path}')
     else:
+        # Si no encuentra nada, inicia Flask vacío (esto causará 404 para rutas SPA)
         app = Flask(__name__)
-        app.logger.warning(f'⚠️ No se encontró el directorio dist en {dist_path}')
+        app.logger.error(f'❌ ERROR FATAL: No se encontró la carpeta dist en {docker_dist} ni en {local_dist}')
     # Desactivar redirecciones automáticas (308/301) por trailing slashes que pueden eliminar headers
     app.url_map.strict_slashes = False
     
