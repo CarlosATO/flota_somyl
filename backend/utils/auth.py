@@ -27,16 +27,40 @@ def generate_token(user: dict, hours: int = 24) -> str:
 
 
 def decode_token(token: str) -> dict | None:
-    secret = _get_secret()
-    try:
-        payload = jwt.decode(token, secret, algorithms=['HS256'])
-        return payload
-    except jwt.ExpiredSignatureError:
-        current_app.logger.warning('❌ Token expirado')
-        return None
-    except Exception as e:
-        current_app.logger.warning(f'❌ Token inválido: {e}')
-        return None
+    # 1. Intentamos obtener la LLAVE MAESTRA del SSO
+    sso_secret = os.environ.get('JWT_SECRET_KEY')
+    
+    # 2. Intentamos obtener la llave local (por si acaso es un token viejo)
+    local_secret = _get_secret()
+
+    payload = None
+
+    # INTENTO A: Probar con la Llave del SSO (Prioridad 1)
+    if sso_secret:
+        try:
+            # OJO: El portal usa HS256
+            payload = jwt.decode(token, sso_secret, algorithms=['HS256'])
+            current_app.logger.info('✅ Token decodificado con llave SSO')
+            return payload
+        except jwt.ExpiredSignatureError:
+            current_app.logger.warning('❌ Token SSO expirado')
+            return None
+        except jwt.InvalidSignatureError:
+            # Si falla la firma, no pasa nada, probamos la siguiente llave
+            pass
+        except Exception as e:
+            current_app.logger.warning(f'⚠️ Error decodificando SSO: {e}')
+
+    # INTENTO B: Probar con la Llave Local (Prioridad 2 - Retrocompatibilidad)
+    if local_secret:
+        try:
+            payload = jwt.decode(token, local_secret, algorithms=['HS256'])
+            current_app.logger.info('✅ Token decodificado con llave Local')
+            return payload
+        except Exception as e:
+            current_app.logger.warning(f'❌ Falló decodificación local: {e}')
+    
+    return None
 
 
 def get_user_by_email(email: str) -> dict | None:
@@ -94,10 +118,27 @@ def get_user_from_token(token: str) -> dict | None:
     payload = decode_token(token)
     if not payload:
         return None
+    
+    # ESTRATEGIA HÍBRIDA:
+    
+    # 1. Si el token trae 'email' (Viene del Portal SSO)
+    email_sso = payload.get('email')
+    if email_sso:
+        current_app.logger.info(f'🔎 Buscando usuario por Email SSO: {email_sso}')
+        return get_user_by_email(email_sso)
+
+    # 2. Si el token trae 'user_id' (Formato antiguo de Flota)
     user_id = payload.get('user_id')
-    if not user_id:
-        return None
-    return get_user_by_id(user_id)
+    if user_id:
+        return get_user_by_id(user_id)
+        
+    # 3. Si el token trae 'sub' (Estándar JWT, puede ser el ID)
+    sub_id = payload.get('sub')
+    if sub_id:
+        # Intentamos ver si el 'sub' coincide con un ID local (si son enteros o UUID coincidentes)
+        return get_user_by_id(sub_id)
+
+    return None
 
 
 def auth_required(func):

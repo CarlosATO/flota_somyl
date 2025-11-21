@@ -1,5 +1,6 @@
 import os
-from flask import Flask, jsonify, send_from_directory
+import jwt
+from flask import Flask, jsonify, send_from_directory, request, render_template_string, redirect
 from supabase import create_client
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -25,7 +26,9 @@ def create_app():
         app.logger.warning(f'⚠️ No se encontró el directorio dist en {dist_path}')
     # Desactivar redirecciones automáticas (308/301) por trailing slashes que pueden eliminar headers
     app.url_map.strict_slashes = False
-    CORS(app)
+    
+    # Configurar CORS para permitir requests desde el frontend (puerto 5173) con credenciales
+    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
 
@@ -154,3 +157,27 @@ def create_app():
     return app
 
 app = create_app()
+
+
+# Single Sign-On bridge — recibe token firmado y redirige al frontend con token en la URL
+@app.route('/sso/login')
+def sso_receiver():
+    token = request.args.get('token')
+    
+    if not token:
+        return "Error: Token no recibido", 400
+    try:
+        payload = jwt.decode(token, options={"verify_signature": False})
+
+        # 🛡️ SEGURIDAD: Verificar Rol FLOTA
+        roles = payload.get('roles', {}) or {}
+        if not roles.get('flota'):
+            return "<h1>Acceso Denegado</h1><p>No tienes permisos para <b>Control Flota</b>.</p><a href='https://portal.datix.cl/'>Volver al Portal</a>", 403
+
+        email = payload.get('email', '')
+    except:
+        email = ''
+
+    # En producción redirigimos al dominio público
+    frontend_url = f"https://flota.datix.cl/login?sso_token={token}&sso_user={email}"
+    return redirect(frontend_url)

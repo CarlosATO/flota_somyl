@@ -36,7 +36,8 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, sigint_handler)
 
     # Backend: ejecutar flask app (espera que exista create_app en backend/app.py)
-    start([sys.executable, "-m", "flask", "--app", "backend.app", "run", "--port=5001"], ROOT)
+    # For development we prefer a deterministic default port; set to 5003
+    start([sys.executable, "-m", "flask", "--app", "backend.app", "run", "--port=5003"], ROOT)
 
     # Frontend: npm run dev
     start(["npm", "run", "dev"], FRONTEND_DIR)

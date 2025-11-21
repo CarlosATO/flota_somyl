@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './Login.css'
 
 function Login({ onLogin }){
@@ -6,6 +6,26 @@ function Login({ onLogin }){
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  useEffect(() => {
+    // 1. Buscamos si hay parámetros en la URL
+    const params = new URLSearchParams(window.location.search);
+    const ssoToken = params.get('sso_token');
+    const ssoUser = params.get('sso_user');
+
+    // 2. Si encontramos un token que viene del SSO
+    if (ssoToken) {
+        console.log("Recibido token SSO, guardando...");
+        // Guardamos en el bolsillo CORRECTO (el del frontend)
+        localStorage.setItem('authToken', ssoToken);
+        localStorage.setItem('token', ssoToken); // Por si acaso
+        localStorage.setItem('userName', ssoUser || 'Usuario SSO');
+
+        // 3. Limpiamos la URL para que no se vea feo y recargamos
+        window.history.replaceState({}, document.title, "/");
+        window.location.href = "/"; // Forzamos la recarga para entrar al dashboard
+    }
+  }, []);
 
   const submit = async (e) =>{
     e.preventDefault()

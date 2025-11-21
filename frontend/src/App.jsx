@@ -19,20 +19,41 @@ function App(){
   const [loading, setLoading] = useState(true)
 
   useEffect(()=>{
-    const savedToken = localStorage.getItem('token')
+    // First check if the SSO redirect provided token params in the URL
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const ssoToken = params.get('sso_token')
+      const ssoUser = params.get('sso_user')
+      if (ssoToken) {
+        // Keep compatibility: store both keys
+        localStorage.setItem('authToken', ssoToken)
+        localStorage.setItem('token', ssoToken)
+        if (ssoUser) localStorage.setItem('userName', ssoUser)
+        localStorage.setItem('tokenCreatedAt', Date.now().toString())
+        // Remove params from URL without reloading
+        const u = new URL(window.location.href)
+        u.search = ''
+        window.history.replaceState({}, document.title, u.toString())
+      }
+    } catch (err) {
+      console.warn('Error parsing SSO params', err)
+    }
+
+    const savedToken = localStorage.getItem('authToken') || localStorage.getItem('token')
     if(!savedToken) {
       setLoading(false)
       return
     }
-    
+
     setToken(savedToken)
-    
+
     ;(async ()=>{
       const res = await apiFetch('/auth/me')
       if(res && res.status === 200 && res.data && res.data.user){
         setUser(res.data.user)
       } else {
         localStorage.removeItem('token')
+        localStorage.removeItem('authToken')
         setToken(null)
       }
       setLoading(false)

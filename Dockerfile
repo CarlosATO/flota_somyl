@@ -33,8 +33,8 @@ COPY backend/ ./backend/
 COPY run.py ./
 COPY Procfile ./
 
-# Exponer puerto
-EXPOSE 8080
+# Exponer puerto por defecto de la app
+EXPOSE 5003
 
 # Comando de inicio
-CMD ["gunicorn", "backend.app:app", "--workers", "4", "--bind", "0.0.0.0:8080"]
+CMD ["gunicorn", "backend.app:app", "--workers", "4", "--bind", "0.0.0.0:5003"]

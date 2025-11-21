@@ -121,7 +121,7 @@ Seguridad / Recomendaciones
 1) Login (obtener token):
 
 ```bash
-curl -s -X POST "http://localhost:5001/auth/login" \
+curl -s -X POST "http://localhost:5003/auth/login" \
    -H "Content-Type: application/json" \
    -d '{"email":"usuario@ejemplo.com","password":"tu-contraseña"}'
 ```
@@ -130,7 +130,7 @@ curl -s -X POST "http://localhost:5001/auth/login" \
 
 ```bash
 TOKEN="<AQUI_TU_TOKEN>"
-curl -s -X GET "http://localhost:5001/auth/me" \
+curl -s -X GET "http://localhost:5003/auth/me" \
    -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -138,7 +138,7 @@ curl -s -X GET "http://localhost:5001/auth/me" \
 
 ```bash
 TOKEN="<AQUI_TU_TOKEN>"
-curl -s -X GET "http://localhost:5001/api/adjuntos/download?path=mi/archivo.jpg&name=foto.jpg" \
+curl -s -X GET "http://localhost:5003/api/adjuntos/download?path=mi/archivo.jpg&name=foto.jpg" \
    -H "Authorization: Bearer $TOKEN" -o foto.jpg
 ```
 
@@ -207,7 +207,7 @@ python run.py
 **Terminal 1 - Backend:**
 ```bash
 cd backend
-flask run --port=5001
+flask run --port=5003
 ```
 
 **Terminal 2 - Frontend:**
@@ -218,7 +218,7 @@ npm run dev
 
 La aplicación estará disponible en:
 - Frontend: http://localhost:5173
-- Backend: http://localhost:5001
+- Backend: http://localhost:5003
 
 ## 🐳 Despliegue en Railway
 
