@@ -7,40 +7,41 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 def create_app():
-    # --- CAMBIO: Lógica robusta para encontrar el Frontend en Docker o en local ---
-    # 1. Intentamos la ruta absoluta de Docker (la más segura en Railway)
+    # 1. Definir rutas absolutas (Railway usa /app como raíz)
+    # La carpeta dist está dentro de /app/frontend/dist
     docker_dist = '/app/frontend/dist'
+    local_dist = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
 
-    # 2. Intentamos la ruta relativa (para desarrollo local)
-    local_dist = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist'))
-
-    if os.path.isdir(docker_dist):
+    # 2. Forzar la detección
+    if os.path.exists(docker_dist):
         dist_path = docker_dist
-        app = Flask(__name__, static_folder=dist_path, static_url_path='')
-        app.logger.info(f'🚀 Modo Docker: Sirviendo frontend desde {dist_path}')
-    elif os.path.isdir(local_dist):
+        print(f"🚀 MODO NUBE: Sirviendo frontend desde {dist_path}")
+    elif os.path.exists(local_dist):
         dist_path = local_dist
-        app = Flask(__name__, static_folder=dist_path, static_url_path='')
-        app.logger.info(f'💻 Modo Local: Sirviendo frontend desde {dist_path}')
+        print(f"💻 MODO LOCAL: Sirviendo frontend desde {dist_path}")
     else:
-        # Si no encuentra nada, inicia Flask vacío (esto causará 404 para rutas SPA)
-        app = Flask(__name__)
-        app.logger.error(f'❌ ERROR FATAL: No se encontró la carpeta dist en {docker_dist} ni en {local_dist}')
-    # Desactivar redirecciones automáticas (308/301) por trailing slashes que pueden eliminar headers
-    app.url_map.strict_slashes = False
-    
-    # Configurar CORS para permitir requests desde el frontend (puerto 5173) con credenciales
-    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+        print("⚠️ ERROR: No encuentro la carpeta 'dist'. Creando app vacía.")
+        dist_path = None
 
+    # 3. Inicializar Flask con la ruta encontrada
+    if dist_path:
+        app = Flask(__name__, static_folder=dist_path, static_url_path='')
+    else:
+        app = Flask(__name__)
+
+    # Configuración base
+    app.url_map.strict_slashes = False
+    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
 
+    # Configuración Supabase (si aplica)
     SUPABASE_URL = os.environ.get('SUPABASE_URL')
     SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
     if SUPABASE_URL and SUPABASE_KEY:
         app.config['SUPABASE'] = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Inicializar cliente Supabase para la base de Proyectos si está configurada
     PROYECTOS_URL = os.environ.get('PROYECTOS_SUPABASE_URL')
     PROYECTOS_KEY = os.environ.get('PROYECTOS_SUPABASE_KEY')
     if PROYECTOS_URL and PROYECTOS_KEY:
@@ -50,110 +51,90 @@ def create_app():
         except Exception as e:
             app.logger.error(f'❌ Error creando PROYECTOS_SUPABASE client: {e}')
 
+    # Blueprints y rutas API
     @app.route('/api/health', methods=['GET'])
     def health():
         return jsonify({"status": "ok", "message": "API funcionando!"})
 
-    # Blueprint Auth
+    # Registrar blueprints (se omiten fallos para que la app no caiga)
     try:
         from .modules.auth import bp as auth_bp
         app.register_blueprint(auth_bp, url_prefix='/auth')
         app.logger.info('✅ Blueprint auth registrado en /auth')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar auth: {e}')
-        pass
-    # Blueprint Ordenes
+        app.logger.warning(f'⚠️ auth blueprint no registrado: {e}')
+
     try:
         from .modules.ordenes import bp as ordenes_bp
         app.register_blueprint(ordenes_bp, url_prefix='/api/ordenes')
         app.logger.info('✅ Blueprint ordenes registrado en /api/ordenes')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar ordenes: {e}') 
-        pass
+        app.logger.warning(f'⚠️ ordenes blueprint no registrado: {e}')
 
-    # Blueprint Vehiculos
     try:
         from .modules.vehiculos import bp as vehiculos_bp
         app.register_blueprint(vehiculos_bp, url_prefix='/api/vehiculos')
         app.logger.info('✅ Blueprint vehiculos registrado en /api/vehiculos')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar vehiculos: {e}')
-        pass
-    
-    # Blueprint Conductores
+        app.logger.warning(f'⚠️ vehiculos blueprint no registrado: {e}')
+
     try:
         from .modules.conductores import bp as conductores_bp
         app.register_blueprint(conductores_bp, url_prefix='/api/conductores')
         app.logger.info('✅ Blueprint conductores registrado en /api/conductores')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar conductores: {e}')
-        pass
+        app.logger.warning(f'⚠️ conductores blueprint no registrado: {e}')
 
-    # Blueprint Mantenimiento
     try:
         from .modules.mantenimiento import bp as mantenimiento_bp
         app.register_blueprint(mantenimiento_bp, url_prefix='/api/mantenimiento')
         app.logger.info('✅ Blueprint mantenimiento registrado en /api/mantenimiento')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar mantenimiento: {e}')
-        pass
+        app.logger.warning(f'⚠️ mantenimiento blueprint no registrado: {e}')
 
-    # Blueprint Reportes
     try:
         from .modules.reportes import reportes_bp
         app.register_blueprint(reportes_bp, url_prefix='/api/reportes')
         app.logger.info('✅ Blueprint reportes registrado en /api/reportes')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar reportes: {e}')
-        pass
+        app.logger.warning(f'⚠️ reportes blueprint no registrado: {e}')
 
-    # Blueprint Combustible
     try:
         from .modules.combustible import bp as combustible_bp
         app.register_blueprint(combustible_bp, url_prefix='/api/combustible')
         app.logger.info('✅ Blueprint combustible registrado en /api/combustible')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar combustible: {e}')
-        pass
+        app.logger.warning(f'⚠️ combustible blueprint no registrado: {e}')
 
-    # Blueprint Adjuntos (nuevo módulo)
     try:
         from .modules.adjuntos import bp as adjuntos_bp
         app.register_blueprint(adjuntos_bp, url_prefix='/api/adjuntos')
         app.logger.info('✅ Blueprint adjuntos registrado en /api/adjuntos')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar adjuntos: {e}')
-        pass
+        app.logger.warning(f'⚠️ adjuntos blueprint no registrado: {e}')
 
-    # Blueprint Usuarios
     try:
         from .modules.usuarios import bp as usuarios_bp
         app.register_blueprint(usuarios_bp, url_prefix='/api/usuarios')
         app.logger.info('✅ Blueprint usuarios registrado en /api/usuarios')
     except Exception as e:
-        app.logger.error(f'❌ Error al registrar usuarios: {e}')
-        pass
+        app.logger.warning(f'⚠️ usuarios blueprint no registrado: {e}')
 
-    # 4. REGISTRO DE LA RUTA COMODÍN (CATCH-ALL) — solo si tenemos dist_path
-    if 'dist_path' in locals() and dist_path and os.path.isdir(dist_path):
+    # 4. RUTA CATCH-ALL (Vital para que React funcione)
+    if dist_path:
         @app.route('/', defaults={'path': ''})
         @app.route('/<path:path>')
-        def serve_frontend(path):
-            # No interferir con la API
-            if path.startswith('api/') or path.startswith('auth/'):
+        def serve(path):
+            # Ignorar rutas de API
+            if path.startswith('api/') or path.startswith('auth/') or path.startswith('sso/'):
                 return jsonify({'error': 'Not Found'}), 404
-            
-            # Servir archivo estático si existe
-            full_path = os.path.join(app.static_folder, path)
-            if path and os.path.isfile(full_path):
+
+            # Servir archivos si existen
+            if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
                 return send_from_directory(app.static_folder, path)
-            
-            # Si no es API ni archivo, servir index.html (React Router)
+
+            # Si no, servir el index.html (React Router)
             return send_from_directory(app.static_folder, 'index.html')
 
-        app.logger.info('🔷 Rutas configuradas para servir SPA desde static_folder')
-        app.logger.info(f'🔷 Static folder: {app.static_folder}')
-    else:
-        app.logger.warning('⚠️ No se configuraron rutas de frontend (static_folder no existe)')
-
     return app
+
