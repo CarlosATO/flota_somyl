@@ -33,8 +33,9 @@ COPY backend/ ./backend/
 COPY run.py ./
 COPY Procfile ./
 
-# Exponer puerto por defecto de la app
+# Exponer puerto por defecto de la app (documentacional)
 EXPOSE 5003
 
-# Comando de inicio
-CMD ["gunicorn", "backend.app:app", "--workers", "4", "--bind", "0.0.0.0:5003"]
+# CMD Modificado para leer la variable PORT del entorno
+# En plataformas como Railway/Heroku la plataforma proporciona $PORT en runtime.
+CMD gunicorn backend.app:app --workers 4 --bind 0.0.0.0:$PORT
