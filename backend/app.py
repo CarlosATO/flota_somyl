@@ -62,7 +62,6 @@ def create_app():
     except Exception as e:
         app.logger.error(f'❌ Error al registrar auth: {e}')
         pass
-
     # Blueprint Ordenes
     try:
         from .modules.ordenes import bp as ordenes_bp
@@ -135,52 +134,26 @@ def create_app():
         app.logger.error(f'❌ Error al registrar usuarios: {e}')
         pass
 
-    # Servir frontend compilado por Vite (SPA) si existe
-    if app.static_folder and os.path.isdir(app.static_folder):
+    # 4. REGISTRO DE LA RUTA COMODÍN (CATCH-ALL) — solo si tenemos dist_path
+    if 'dist_path' in locals() and dist_path and os.path.isdir(dist_path):
         @app.route('/', defaults={'path': ''})
         @app.route('/<path:path>')
         def serve_frontend(path):
-            # Evitar interferir con rutas de API y Auth
+            # No interferir con la API
             if path.startswith('api/') or path.startswith('auth/'):
                 return jsonify({'error': 'Not Found'}), 404
             
-            # Si es un archivo estático (css, js, etc), intentar servirlo
+            # Servir archivo estático si existe
             full_path = os.path.join(app.static_folder, path)
             if path and os.path.isfile(full_path):
                 return send_from_directory(app.static_folder, path)
             
-            # Para cualquier otra ruta, servir index.html (SPA routing)
+            # Si no es API ni archivo, servir index.html (React Router)
             return send_from_directory(app.static_folder, 'index.html')
-        
+
         app.logger.info('🔷 Rutas configuradas para servir SPA desde static_folder')
         app.logger.info(f'🔷 Static folder: {app.static_folder}')
     else:
         app.logger.warning('⚠️ No se configuraron rutas de frontend (static_folder no existe)')
 
     return app
-
-app = create_app()
-
-
-# Single Sign-On bridge — recibe token firmado y redirige al frontend con token en la URL
-@app.route('/sso/login')
-def sso_receiver():
-    token = request.args.get('token')
-    
-    if not token:
-        return "Error: Token no recibido", 400
-    try:
-        payload = jwt.decode(token, options={"verify_signature": False})
-
-        # 🛡️ SEGURIDAD: Verificar Rol FLOTA
-        roles = payload.get('roles', {}) or {}
-        if not roles.get('flota'):
-            return "<h1>Acceso Denegado</h1><p>No tienes permisos para <b>Control Flota</b>.</p><a href='https://portal.datix.cl/'>Volver al Portal</a>", 403
-
-        email = payload.get('email', '')
-    except:
-        email = ''
-
-    # En producción redirigimos al dominio público
-    frontend_url = f"https://flota.datix.cl/login?sso_token={token}&sso_user={email}"
-    return redirect(frontend_url)
