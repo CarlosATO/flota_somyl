@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 import jwt
 from flask import Flask, jsonify, send_from_directory, request, render_template_string, redirect
 from supabase import create_client
@@ -137,4 +138,30 @@ def create_app():
             return send_from_directory(app.static_folder, 'index.html')
 
     return app
+
+# 1. CREAR LA INSTANCIA (Vital para Gunicorn)
+app = create_app()
+
+
+# 2. RUTA SSO (El puente con el Portal)
+@app.route('/sso/login')
+def sso_receiver():
+    token = request.args.get('token') or request.args.get('sso_token') or request.args.get('t')
+    if not token:
+        return "Error: Token no recibido", 400
+    try:
+        # Decodificar sin verificar firma aquí (solo para extraer campos)
+        payload = jwt.decode(token, options={"verify_signature": False})
+        roles = payload.get('roles', {}) or {}
+        if not roles.get('flota'):
+            return "<h1>Acceso Denegado</h1><p>Sin permiso para Flota.</p>", 403
+        email = payload.get('email', '')
+    except Exception:
+        email = ''
+
+    # REDIRECCIÓN A PRODUCCIÓN (encode para evitar problemas con caracteres especiales)
+    sso_token_enc = urllib.parse.quote_plus(token)
+    sso_user_enc = urllib.parse.quote_plus(email)
+    frontend_url = f"https://flota.datix.cl/login?sso_token={sso_token_enc}&sso_user={sso_user_enc}"
+    return redirect(frontend_url)
 
