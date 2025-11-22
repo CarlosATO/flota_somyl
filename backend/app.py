@@ -8,6 +8,32 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def create_app():
+    # --- 🔍 INICIO ZONA DE DIAGNÓSTICO ---
+    import os
+    print("\n" + "="*50)
+    print("🕵️‍♂️ INICIANDO DIAGNÓSTICO DE ARCHIVOS EN RAILWAY")
+    print(f"📂 Directorio actual (getcwd): {os.getcwd()}")
+    
+    paths_to_check = [
+        '/app',
+        '/app/frontend',
+        '/app/frontend/dist',
+        '/app/dist',
+        'frontend/dist'
+    ]
+    
+    for p in paths_to_check:
+        if os.path.exists(p):
+            try:
+                contenido = os.listdir(p)
+                print(f"✅ {p} EXISTE. Contiene ({len(contenido)} items): {contenido[:5]}...")
+            except:
+                print(f"✅ {p} EXISTE (No se pudo listar contenido)")
+        else:
+            print(f"❌ {p} NO EXISTE")
+    print("="*50 + "\n")
+    # --- 🔍 FIN ZONA DE DIAGNÓSTICO ---
+
     # --- 1. CONFIGURACIÓN DE RUTAS BLINDADA ---
     # En Railway, la ruta SIEMPRE es esta. No adivinamos.
     docker_dist = '/app/frontend/dist'
