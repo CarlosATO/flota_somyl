@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 // Force rebuild with environment variables
 export default defineConfig({
   plugins: [react()],
+  base: '/', // <--- ESTO ES LA CLAVE. Asegura rutas absolutas.
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
