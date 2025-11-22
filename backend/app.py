@@ -11,20 +11,27 @@ def create_app():
     # --- 1. CONFIGURACIÓN DE RUTAS (Alineado con tu Dockerfile) ---
     # En el Dockerfile movimos todo a /app/public. Esa es la fuente de la verdad.
     static_folder = '/app/public'
-    
+
     print(f"🔍 INICIANDO. Buscando sitio web en: {static_folder}")
-    
+
+    dist_path = None
     if os.path.exists(static_folder) and os.listdir(static_folder):
         print(f"✅ SITIO ENCONTRADO. Contenido: {os.listdir(static_folder)[:3]}...")
-        app = Flask(__name__, static_folder=static_folder, static_url_path='')
+        dist_path = static_folder
     else:
-        print(f"❌ ERROR: No se encuentra el sitio en {static_folder}.")
-        # Fallback para local
+        print(f"❌ ERROR: No se encuentra el sitio.")
+        # Fallback local
         local_dev = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
-        if os.path.exists(local_dev):
-             app = Flask(__name__, static_folder=local_dev, static_url_path='')
-        else:
-             app = Flask(__name__)
+        if os.path.exists(local_dev) and os.listdir(local_dev):
+            print(f"ℹ️ Usando build local en: {local_dev}")
+            dist_path = local_dev
+
+    # --- CORRECCIÓN: No usar static_url_path='' porque Flask intentará
+    # servir cualquier ruta como archivo y secuestrará rutas como /login.
+    if dist_path:
+        app = Flask(__name__, static_folder=dist_path)
+    else:
+        app = Flask(__name__)
 
     # --- 2. CONFIGURACIONES BÁSICAS ---
     app.url_map.strict_slashes = False
