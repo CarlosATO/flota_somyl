@@ -27,7 +27,11 @@ ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 RUN npm install
 RUN npm run build
 
-# Volver al directorio principal y copiar el backend
+# --- CAMBIO CLAVE: Mover el build a una carpeta simple ---
+# Creamos /app/public y copiamos el contenido de dist ahí
+RUN mkdir -p /app/public && cp -r /app/frontend/dist/* /app/public/
+
+# Volver al directorio principal
 WORKDIR /app
 COPY backend/ ./backend/
 COPY run.py ./
