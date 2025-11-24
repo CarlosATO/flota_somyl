@@ -24,15 +24,17 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
 
   // --- NUEVA FUNCIÓN PARA CERRAR SESIÓN Y VOLVER AL PORTAL ---
   const handleLogoutClick = () => {
-    // 1. Ejecutamos la función original de React (por si limpia algún estado interno)
-    if (onLogout) onLogout();
+    // Nota: NO invocamos `onLogout()` aquí — hacerlo provoca que React
+    // re-renderice y muestre la pantalla de Login brevemente antes de la
+    // redirección al portal. En su lugar, limpiamos el storage y hacemos
+    // un redirect inmediato que reemplaza la entrada actual en el history.
 
-    // 2. Limpiamos las credenciales del navegador (Seguridad)
-    localStorage.clear();
+    // 1) Limpiar credenciales locales
+    try { localStorage.clear(); } catch (e) { /* ignore */ }
 
-    // 3. REDIRECCIÓN AL PORTAL (producción)
-    // Usar el dominio público del Portal en producción
-    window.location.href = "https://portal.datix.cl/";
+    // 2) Redirigir al portal usando replace para evitar que /login quede en el history
+    // (evita flash y evita que el usuario vuelva con el botón Atrás).
+    window.location.replace("https://portal.datix.cl/");
   }
   // -----------------------------------------------------------
 

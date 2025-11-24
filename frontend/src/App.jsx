@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Login from './components/Login'
+import AccessDenied from './components/AccessDenied'
 import TopBar from './components/TopBar'
 import Vehiculos from './components/Vehiculos'
 import Conductores from './components/Conductores'
@@ -104,7 +105,15 @@ function App(){
     )
   }
 
+  // Portal-only mode: if enabled, don't show the local login UI and instead
+  // show an informative 'Acceso Denegado' page that points users to the portal.
+  const portalOnly = import.meta.env.VITE_PORTAL_ONLY === 'true' || import.meta.env.VITE_PORTAL_ONLY === true
+
   if (!user || !token) {
+    if (portalOnly) {
+      return <AccessDenied />
+    }
+
     return (
       <div className="auth-root">
         <div className="auth-center">
