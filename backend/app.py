@@ -1,6 +1,7 @@
 import os
 import jwt
-from flask import Flask, jsonify, send_from_directory, request, redirect
+from urllib.parse import quote_plus
+from flask import Flask, jsonify, send_from_directory, request, redirect, make_response
 from supabase import create_client
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -143,9 +144,23 @@ def sso_receiver():
     except:
         pass
 
-    # Redirección a producción
-    frontend_url = f"https://flota.datix.cl/login?sso_token={token}&sso_user={email}"
-    return redirect(frontend_url)
+    # Referrer preferido: query or incoming request.referrer
+    ref = request.args.get('referrer') or request.referrer or 'https://portal.datix.cl/'
+
+    # Redirección a producción (URL-encoded params)
+    frontend_url = (
+        f"https://flota.datix.cl/login?sso_token={quote_plus(token)}"
+        f"&sso_user={quote_plus(email or '')}&referrer={quote_plus(ref)}"
+    )
+
+    # Construir respuesta que además setea una cookie segura (HttpOnly)
+    response = make_response(redirect(frontend_url))
+    try:
+        response.set_cookie('authToken', token, httponly=True, secure=True, samesite='None', max_age=3600)
+    except Exception:
+        # En entornos locales sin https, set_cookie podría comportarse distinto — ignore.
+        pass
+    return response
 
 if __name__ == '__main__':
     app.run(port=5003, debug=True)

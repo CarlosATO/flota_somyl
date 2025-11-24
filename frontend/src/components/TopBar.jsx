@@ -29,12 +29,12 @@ function TopBar({ user, onLogout, onNavigate, activeModule }) {
     // redirección al portal. En su lugar, limpiamos el storage y hacemos
     // un redirect inmediato que reemplaza la entrada actual en el history.
 
-    // 1) Limpiar credenciales locales
-    try { localStorage.clear(); } catch (e) { /* ignore */ }
+    // 1) Limpiar credenciales locales y de sesión
+    try { localStorage.clear(); sessionStorage.removeItem('sso_referrer'); } catch (e) { /* ignore */ }
 
-    // 2) Redirigir al portal usando replace para evitar que /login quede en el history
-    // (evita flash y evita que el usuario vuelva con el botón Atrás).
-    window.location.replace("https://portal.datix.cl/");
+    // 2) Redirigir al portal preferido (si el SSO incluyó referrer) usando replace
+    const ref = sessionStorage.getItem('sso_referrer') || 'https://portal.datix.cl/'
+    window.location.replace(ref)
   }
   // -----------------------------------------------------------
 

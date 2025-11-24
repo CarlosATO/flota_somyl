@@ -25,16 +25,20 @@ function App(){
       const params = new URLSearchParams(window.location.search)
       const ssoToken = params.get('sso_token')
       const ssoUser = params.get('sso_user')
+      const ssoReferrer = params.get('referrer')
       if (ssoToken) {
         // Keep compatibility: store both keys
         localStorage.setItem('authToken', ssoToken)
         localStorage.setItem('token', ssoToken)
         if (ssoUser) localStorage.setItem('userName', ssoUser)
+        if (ssoReferrer) sessionStorage.setItem('sso_referrer', ssoReferrer)
         localStorage.setItem('tokenCreatedAt', Date.now().toString())
         // Remove params from URL without reloading
         const u = new URL(window.location.href)
         u.search = ''
         window.history.replaceState({}, document.title, u.toString())
+        // jump to dashboard so user doesn't see login flash
+        try { setActiveModule('dashboard') } catch (e) {}
       }
     } catch (err) {
       console.warn('Error parsing SSO params', err)
