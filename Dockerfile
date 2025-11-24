@@ -19,10 +19,12 @@ WORKDIR /app/frontend
 # Declarar build args para las variables de entorno de Vite
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_PORTAL_ONLY
 
 # Exportarlas como variables de entorno para el build
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV VITE_PORTAL_ONLY=$VITE_PORTAL_ONLY
 
 RUN npm install
 RUN npm run build
