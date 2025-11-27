@@ -69,6 +69,53 @@ def _registrar_cambio_estado(orden_id, estado_anterior, estado_nuevo, usuario_id
     except Exception as e:
         current_app.logger.error(f"Error registrando historial: {e}")
 
+
+def _resolve_conductor_id_for_user(user: dict):
+    """Intentar resolver el `id` de `flota_conductores` asociado al usuario.
+
+    Estrategia (en este orden):
+    - Buscar por `rut` (si existe en `user['rut']`)
+    - Buscar por `email` / `correo` en la tabla `flota_conductores`
+    - Intentar buscar por `usuario_id` en la tabla `flota_conductores` (si existe la columna)
+    Retorna `int` o `None` si no se encuentra.
+    """
+    supabase = current_app.config.get('SUPABASE')
+    if not supabase or not user:
+        return None
+
+    # 1) Por RUT
+    try:
+        rut = user.get('rut')
+        if rut:
+            res = supabase.table('flota_conductores').select('id').eq('rut', rut).limit(1).execute()
+            if res.data:
+                return res.data[0]['id']
+    except Exception:
+        # No crítico: seguimos intentando
+        pass
+
+    # 2) Por email/correo
+    try:
+        correo = user.get('correo') or user.get('email')
+        if correo:
+            res = supabase.table('flota_conductores').select('id').ilike('email', correo).limit(1).execute()
+            if res.data:
+                return res.data[0]['id']
+    except Exception:
+        pass
+
+    # 3) Por usuario_id en la tabla conductores (campo opcional)
+    try:
+        uid = user.get('id')
+        if uid is not None:
+            res = supabase.table('flota_conductores').select('id').eq('usuario_id', uid).limit(1).execute()
+            if res.data:
+                return res.data[0]['id']
+    except Exception:
+        pass
+
+    return None
+
 # === 5. RUTAS DEL MÓDULO ORDENES ===
 
 @bp.route('/', methods=['GET'])
@@ -389,6 +436,33 @@ def add_adjunto(orden_id):
     storage_path = payload.get('storage_path')
     if not storage_path:
         return jsonify({'message': 'Falta storage_path'}), 400
+    # Validación: permitir agregar adjuntos si el usuario está asignado como conductor
+    # a la orden o si tiene permisos de escritura (admin/dispatcher).
+    supabase = current_app.config.get('SUPABASE')
+
+    try:
+        res_orden = supabase.table('flota_ordenes').select('conductor_id').eq('id', orden_id).limit(1).execute()
+        if not res_orden.data:
+            return jsonify({'message': 'Orden no encontrada'}), 404
+        orden_conductor_id = res_orden.data[0].get('conductor_id')
+    except Exception as e:
+        current_app.logger.error(f"Error buscando orden para adjuntos: {e}")
+        return jsonify({'message': 'Error interno al verificar la orden'}), 500
+
+    conductor_id_flota = None
+    try:
+        conductor_id_flota = _resolve_conductor_id_for_user(user)
+    except Exception:
+        conductor_id_flota = None
+
+    # Si no está vinculado y no tiene permiso de escritura, negar
+    if (not conductor_id_flota) and (not _has_write_permission(user)):
+        return jsonify({'message': 'Su usuario no está vinculado a un perfil de conductor. Solicite vinculación al administrador.'}), 403
+
+    # Si la orden tiene un conductor asignado distinto al usuario autenticado y
+    # el usuario no tiene permiso especial, negar.
+    if orden_conductor_id and conductor_id_flota and orden_conductor_id != conductor_id_flota and (not _has_write_permission(user)):
+        return jsonify({'message': 'No tiene permiso para adjuntar archivos a esta orden (no está asignada a usted).'}), 403
 
     row = {
         'orden_id': orden_id,
@@ -397,14 +471,13 @@ def add_adjunto(orden_id):
         'nombre_archivo': payload.get('nombre_archivo'),
         'mime_type': payload.get('mime_type'),
         'observacion': payload.get('observacion'),
-        # --- ¡AQUÍ ESTÁ EL CAMBIO! ---
         'tipo_adjunto': payload.get('tipo_adjunto', 'inicio') # Recibimos la etiqueta
     }
-    supabase = current_app.config.get('SUPABASE')
     try:
         res = supabase.table('flota_orden_adjuntos').insert(row).execute()
         return jsonify({'data': res.data[0]}), 201
     except Exception as e:
+        current_app.logger.error(f"Error guardando adjunto: {e}")
         return jsonify({'message': 'Error al guardar adjunto'}), 500
 
 
@@ -470,27 +543,13 @@ def get_ordenes_conductor_activas():
     if not user:
         return jsonify({'message': 'Error de autenticación, usuario no encontrado'}), 401
     
-    # Verificamos que el usuario logueado sea un conductor
-    if (user.get('cargo') or '').lower() != 'conductor':
-        return jsonify({'message': 'Acceso denegado. Este endpoint es solo para conductores.'}), 403
-
-    # --- Lógica de Búsqueda Segura ---
-    # Usamos el RUT del usuario logueado (flota_usuarios) para encontrar 
-    # su ID correspondiente en la tabla de conductores (flota_conductores).
+    # Intentar resolver el conductor asociado al usuario autenticado.
     try:
-        conductor_rut = user.get('rut')
-        if not conductor_rut:
-            return jsonify({'message': 'El usuario no tiene RUT asignado'}), 400
-            
-        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
-        
-        if not res_conductor.data:
-            return jsonify({'message': 'Su usuario no está creado como conductor. Favor solicite su creación al administrador.'}), 404
-            
-        conductor_id_flota = res_conductor.data[0]['id']
-
+        conductor_id_flota = _resolve_conductor_id_for_user(user)
+        if not conductor_id_flota:
+            return jsonify({'message': 'Su usuario no está vinculado a un perfil de conductor. Solicite vinculación al administrador.'}), 404
     except Exception as e:
-        current_app.logger.error(f"Error buscando ID de conductor por RUT: {e}")
+        current_app.logger.error(f"Error buscando ID de conductor: {e}")
         return jsonify({'message': 'Error interno al verificar conductor'}), 500
     
     # --- Búsqueda de Órdenes ---
@@ -520,18 +579,13 @@ def iniciar_viaje_conductor(orden_id):
     supabase = current_app.config.get('SUPABASE')
     user = g.get('current_user') # Usuario de flota_usuarios
     
-    if (user.get('cargo') or '').lower() != 'conductor':
-        return jsonify({'message': 'Acceso denegado. Solo conductores.'}), 403
-
-    # --- 1. Verificar el conductor (usando el RUT) ---
+    # Resolver conductor asociado al usuario autenticado.
     try:
-        conductor_rut = user.get('rut')
-        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
-        if not res_conductor.data:
-            return jsonify({'message': 'Su usuario no está creado como conductor. Favor solicite su creación al administrador.'}), 404
-        conductor_id_flota = res_conductor.data[0]['id']
+        conductor_id_flota = _resolve_conductor_id_for_user(user)
+        if not conductor_id_flota:
+            return jsonify({'message': 'Su usuario no está vinculado a un perfil de conductor. Solicite vinculación al administrador.'}), 404
     except Exception as e:
-        current_app.logger.error(f"Error buscando ID de conductor por RUT: {e}")
+        current_app.logger.error(f"Error buscando ID de conductor: {e}")
         return jsonify({'message': 'Error interno al verificar conductor'}), 500
 
     # --- 2. Obtener la orden ---
@@ -596,17 +650,13 @@ def get_ordenes_conductor_en_curso():
     supabase = current_app.config.get('SUPABASE')
     user = g.get('current_user') # Usuario de flota_usuarios
     
-    if (user.get('cargo') or '').lower() != 'conductor':
-        return jsonify({'message': 'Acceso denegado. Solo conductores.'}), 403
-
-    # --- 1. Verificar el conductor (usando el RUT) ---
+    # Resolver conductor asociado al usuario autenticado.
     try:
-        conductor_rut = user.get('rut')
-        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
-        if not res_conductor.data:
-            return jsonify({'message': 'Su usuario no está creado como conductor.'}), 404
-        conductor_id_flota = res_conductor.data[0]['id']
+        conductor_id_flota = _resolve_conductor_id_for_user(user)
+        if not conductor_id_flota:
+            return jsonify({'message': 'Su usuario no está vinculado a un perfil de conductor. Solicite vinculación al administrador.'}), 404
     except Exception as e:
+        current_app.logger.error(f"Error buscando ID de conductor: {e}")
         return jsonify({'message': 'Error interno al verificar conductor'}), 500
     
     # --- 2. Búsqueda de Órdenes "en_curso" ---
@@ -637,17 +687,13 @@ def finalizar_viaje_conductor(orden_id):
     supabase = current_app.config.get('SUPABASE')
     user = g.get('current_user')
     
-    if (user.get('cargo') or '').lower() != 'conductor':
-        return jsonify({'message': 'Acceso denegado. Solo conductores.'}), 403
-
-    # --- 1. Verificar el conductor ---
+    # Resolver conductor asociado al usuario autenticado.
     try:
-        conductor_rut = user.get('rut')
-        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
-        if not res_conductor.data:
-            return jsonify({'message': 'Perfil de conductor no encontrado.'}), 404
-        conductor_id_flota = res_conductor.data[0]['id']
+        conductor_id_flota = _resolve_conductor_id_for_user(user)
+        if not conductor_id_flota:
+            return jsonify({'message': 'Su usuario no está vinculado a un perfil de conductor. Solicite vinculación al administrador.'}), 404
     except Exception as e:
+        current_app.logger.error(f"Error buscando ID de conductor: {e}")
         return jsonify({'message': 'Error interno al verificar conductor'}), 500
 
     # --- 2. Obtener la orden ---
@@ -747,17 +793,14 @@ def get_ordenes_conductor_historial():
     supabase = current_app.config.get('SUPABASE')
     user = g.get('current_user')
     
-    if (user.get('cargo') or '').lower() != 'conductor':
-        return jsonify({'message': 'Acceso denegado.'}), 403
-
+    # Resolver conductor asociado al usuario autenticado.
     try:
-        conductor_rut = user.get('rut')
-        res_conductor = supabase.table('flota_conductores').select('id').eq('rut', conductor_rut).limit(1).execute()
-        if not res_conductor.data:
-            return jsonify({'message': 'Conductor no encontrado.'}), 404
-        conductor_id_flota = res_conductor.data[0]['id']
+        conductor_id_flota = _resolve_conductor_id_for_user(user)
+        if not conductor_id_flota:
+            return jsonify({'message': 'Su usuario no está vinculado a un perfil de conductor. Solicite vinculación al administrador.'}), 404
     except Exception as e:
-        return jsonify({'message': 'Error interno.'}), 500
+        current_app.logger.error(f"Error buscando ID de conductor: {e}")
+        return jsonify({'message': 'Error interno al verificar conductor'}), 500
     
     try:
         # Buscamos órdenes COMPLETADAS o CANCELADAS
