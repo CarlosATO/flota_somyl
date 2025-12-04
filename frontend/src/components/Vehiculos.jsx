@@ -554,6 +554,9 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                                                 <option value="VAN">VAN</option>
                                                 <option value="BUS">BUS</option>
                                                 <option value="MOTO">MOTO</option>
+                                                <option value="CHASIS CABINADO">CHASIS CABINADO</option>
+                                                <option value="MAQUINA INDUSTRIAL">MAQUINA INDUSTRIAL</option>
+                                                <option value="FURGON">FURGON</option>
                                             </select>
                                         </div>
                                     </div>

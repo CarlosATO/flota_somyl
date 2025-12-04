@@ -329,7 +329,7 @@ Revisar logs en Railway:
 
 ## 📝 Licencia
 
-Este proyecto es privado y propietario de SOMYL.
+Este proyecto es privado y propietario de Carlos Alegría.
 
 ## 👥 Autor
 
@@ -341,6 +341,9 @@ Este proyecto es privado y propietario de SOMYL.
 Para reportar problemas o solicitar nuevas funcionalidades, crear un issue en GitHub.
 
 ---
+Para iniciar la APPS 
+ 
+ python.run.py
 
 **Versión:** 1.0.0  
 **Última actualización:** Noviembre 2025
