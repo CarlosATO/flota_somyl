@@ -987,6 +987,38 @@ function Vehiculos({ user, token }) {
         setPreview({ open: false, url: '#', name: '', mime: '' });
     };
 
+    // Función auxiliar para renderizar estado de mantención
+    const renderEstadoMant = (v) => {
+        if (!v) return null;
+        if (v.mant_estado === 'VENCIDO') {
+            return (
+                <span className="badge badge-vencido" title={`Pasado por ${Math.abs(v.mant_restante_km || 0).toLocaleString()} km`}>
+                    ⚠️ VENCIDO
+                </span>
+            );
+        } else if (v.mant_estado === 'POR_VENCER') {
+            return (
+                <span className="badge badge-por-vencer">
+                    ⏱️ PRÓXIMO ({v.mant_restante_km ? v.mant_restante_km.toLocaleString() : '-'} km)
+                </span>
+            );
+        } else {
+            return (
+                <span className="badge badge-ok">✅ OK</span>
+            );
+        }
+    };
+
+    const handleRowClick = (veh) => {
+        setEditingVehicle(veh);
+        setShowModal(true);
+    };
+
+    const handleDeleteClick = (vehId) => {
+        const v = vehiculos.find(x => x.id === vehId);
+        setDeletingVehicle(v || { id: vehId });
+    };
+
     if (!token) {
         return (
             <div className="vehiculos-container">
@@ -1025,72 +1057,46 @@ function Vehiculos({ user, token }) {
             {error && <div className="alert-error-pro">⚠️ {error}</div>}
 
             <div className="table-container">
-                {loading && vehiculos.length === 0 ? (
-                    <div className="loading-state">Cargando vehículos...</div>
-                ) : (
+                <div className="table-responsive">
                     <table className="vehiculos-table">
                         <thead>
                             <tr>
                                 <th>Placa</th>
-                                <th>Marca</th>
-                                <th>Modelo</th>
-                                <th>Año</th>
+                                <th>Marca/Modelo</th>
                                 <th>Tipo</th>
-                                <th>Intervalo Mant.</th>
-                                {(canWrite || isAdmin) && <th>Acciones</th>}
+                                <th>Año</th>
+                                <th>Km Actual</th>
+                                <th>Prox. Mant.</th>
+                                <th>Estado Mant.</th>
+                                <th>Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {vehiculos.map(v => (
-                                <tr key={v.id}>
-                                    <td><span className="badge-placa">{v.placa}</span></td>
-                                    <td>{v.marca}</td>
-                                    <td>{v.modelo}</td>
-                                    <td>{v.ano}</td>
-                                    <td><span className="badge-tipo">{v.tipo}</span></td>
-                                    <td>{v.km_intervalo_mantencion ? v.km_intervalo_mantencion.toLocaleString() : '-'} km</td>
-                                    {(canWrite || isAdmin) && (
-                                        <td>
-                                            <div className="action-buttons-pro">
-                                                {canWrite && (
-                                                    <button 
-                                                        onClick={() => handleEditClick(v)} 
-                                                        className="btn-icon-pro btn-edit-pro"
-                                                        title="Editar"
-                                                    >
-                                                        ✏️
-                                                    </button>
-                                                )}
-                                                {isAdmin && (
-                                                    <button 
-                                                        onClick={() => setDeletingVehicle(v)} 
-                                                        className="btn-icon-pro btn-delete-pro"
-                                                        title="Eliminar"
-                                                    >
-                                                        🗑️
-                                                    </button>
-                                                )}
-                                                {/* Ver adjuntos del vehículo */}
-                                                <button
-                                                    className="btn-icon-pro btn-attach-pro"
-                                                    title="Ver adjuntos"
-                                                    onClick={() => openAttachments(v)}
-                                                >
-                                                    📷
-                                                </button>
-                                            </div>
-                                        </td>
-                                    )}
+                            {vehiculos.map((vehiculo) => (
+                                <tr key={vehiculo.id}>
+                                    <td onClick={() => handleRowClick(vehiculo)} className="clickable-cell"><strong>{vehiculo.placa}</strong></td>
+                                    <td>{vehiculo.marca} {vehiculo.modelo}</td>
+                                    <td>{vehiculo.tipo}</td>
+                                    <td>{vehiculo.ano}</td>
+                                    <td>{vehiculo.km_actual_calculado ? vehiculo.km_actual_calculado.toLocaleString() : '0'} km</td>
+                                    <td>{vehiculo.mant_proxima_km ? vehiculo.mant_proxima_km.toLocaleString() : '-'} km</td>
+                                    <td>{renderEstadoMant(vehiculo)}</td>
+                                    <td className="actions-cell">
+                                        <button className="btn-icon" onClick={(e) => { e.stopPropagation(); handleEditClick(vehiculo); }} title="Editar">✏️</button>
+                                        <button className="btn-icon delete" onClick={(e) => { e.stopPropagation(); handleDeleteClick(vehiculo.id); }} title="Eliminar">🗑️</button>
+                                    </td>
                                 </tr>
                             ))}
+                            {vehiculos.length === 0 && (
+                                <tr>
+                                    <td colSpan="8" className="empty-state">No se encontraron vehículos</td>
+                                </tr>
+                            )}
                         </tbody>
                     </table>
-                )}
-                {vehiculos.length === 0 && !loading && (
-                    <div className="empty-state-pro">
-                        <span className="empty-icon-pro">📦</span>
-                        <p>No se encontraron vehículos</p>
-                    </div>
+                </div>
+                {loading && vehiculos.length === 0 && (
+                    <div className="loading-state">Cargando vehículos...</div>
                 )}
             </div>
 

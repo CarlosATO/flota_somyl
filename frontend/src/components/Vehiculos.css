@@ -254,6 +254,40 @@
   margin-bottom: 1rem;
 }
 
+/* Badges for maintenance state */
+.badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: inline-block;
+}
+.badge-vencido {
+    background-color: #ffebee;
+    color: #c62828;
+    border: 1px solid #ffcdd2;
+}
+.badge-por-vencer {
+    background-color: #fff8e1;
+    color: #f57f17;
+    border: 1px solid #ffecb3;
+}
+.badge-ok {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
+}
+
+.clickable-cell {
+    cursor: pointer;
+}
+
+.actions-cell {
+    width: 1px;
+    white-space: nowrap;
+}
+
+
 /* Modal profesional */
 .modal-overlay {
   position: fixed;

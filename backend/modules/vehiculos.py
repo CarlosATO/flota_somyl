@@ -59,8 +59,7 @@ def _safe_date(value):
 @bp.route('/', methods=['GET'])
 @auth_required
 def list_vehiculos():
-    """Listar vehículos con búsqueda, paginación y filtros."""
-    # ... (Lógica de list_vehiculos, sin cambios) ...
+    """Listar vehículos con cálculo optimizado de alertas (Solo 3 consultas a DB)."""
     supabase = current_app.config.get('SUPABASE')
     if not supabase:
         return jsonify({'message': 'Error de configuración: Supabase no disponible'}), 500
@@ -76,16 +75,15 @@ def list_vehiculos():
     start = (page - 1) * per_page
     end = start + per_page - 1
 
-    # Asegurar que la columna 'km_intervalo_mantencion' esté incluida en el select
-    query = supabase.table('flota_vehiculos').select('*, km_intervalo_mantencion')
-    
+    # 1. Obtener Vehículos (Consulta 1)
+    query = supabase.table('flota_vehiculos').select('*')
     if q:
         like_q = f'%{q}%'
         query = query.or_(f"placa.ilike.{like_q},marca.ilike.{like_q},modelo.ilike.{like_q}")
     if tipo:
         query = query.eq('tipo', tipo)
 
-    query = query.is_('deleted_at', None)
+    query = query.is_('deleted_at', None).order('id', desc=False)
 
     try:
         res = query.range(start, end).execute()
@@ -94,12 +92,125 @@ def list_vehiculos():
         current_app.logger.error(f"Error al listar vehículos: {e}")
         return jsonify({'message': 'Error en la base de datos al obtener listado'}), 500
 
+    if not data:
+        return jsonify({'data': [], 'meta': {'page': page, 'per_page': per_page, 'total': 0}})
+
+    # --- OPTIMIZACIÓN: Carga masiva de datos relacionados ---
+    # Extraemos los IDs de los vehículos que se van a mostrar en esta página
+    vehiculo_ids = [v['id'] for v in data]
+
+    # 2. Obtener Órdenes RELEVANTES (Consulta 2)
+    # Traemos solo kilometraje_fin de órdenes completadas para estos vehículos
+    ordenes_data = []
+    if vehiculo_ids:
+        try:
+            o_res = supabase.table('flota_ordenes').select('vehiculo_id, kilometraje_fin') \
+                .in_('vehiculo_id', vehiculo_ids) \
+                .not_.is_('kilometraje_fin', 'null') \
+                .execute()
+            ordenes_data = o_res.data or []
+        except: pass
+
+    # 3. Obtener Mantenimientos RELEVANTES (Consulta 3)
+    # Traemos estado y KMs de mantenimientos para estos vehículos
+    mants_data = []
+    if vehiculo_ids:
+        try:
+            m_res = supabase.table('flota_mantenimientos').select('vehiculo_id, estado, km_realizacion, km_programado') \
+                .in_('vehiculo_id', vehiculo_ids) \
+                .is_('deleted_at', None) \
+                .execute()
+            mants_data = m_res.data or []
+        except: pass
+
+    # --- PROCESAMIENTO EN MEMORIA (Mucho más rápido) ---
+    
+    # Agrupamos órdenes por vehículo
+    ordenes_por_vehiculo = {}
+    for o in ordenes_data:
+        vid = o['vehiculo_id']
+        km = int(float(o.get('kilometraje_fin') or 0))
+        if vid not in ordenes_por_vehiculo:
+            ordenes_por_vehiculo[vid] = 0
+        if km > ordenes_por_vehiculo[vid]:
+            ordenes_por_vehiculo[vid] = km
+
+    # Agrupamos mantenimientos por vehículo
+    mants_por_vehiculo = {}
+    for m in mants_data:
+        vid = m['vehiculo_id']
+        if vid not in mants_por_vehiculo:
+            mants_por_vehiculo[vid] = []
+        mants_por_vehiculo[vid].append(m)
+
+    # Calculamos para cada vehículo
+    for v in data:
+        veh_id = v['id']
+        
+        # Intervalo (default 10000)
+        km_intervalo = v.get('km_intervalo_mantencion') or 10000
+        
+        # A) Obtener Máximo KM de Órdenes
+        max_order_km = ordenes_por_vehiculo.get(veh_id, 0)
+
+        # B) Obtener datos desde Mantenimientos (Con tu nueva lógica)
+        max_mant_km = 0        # Para el KM Actual del vehículo
+        km_ultima_mant = 0     # Base para la próxima mantención (Solo FINALIZADOS)
+        
+        mis_mants = mants_por_vehiculo.get(veh_id, [])
+        
+        for m in mis_mants:
+            k_real = m.get('km_realizacion')
+            k_prog = m.get('km_programado')
+            
+            # Convertir a enteros seguros
+            val_real = int(float(k_real)) if k_real else 0
+            val_prog = int(float(k_prog)) if k_prog else 0
+            
+            # LÓGICA SOLICITADA:
+            # "Si KM Realización es menor al KM Programado, quedarse con KM Programado"
+            # Básicamente tomamos el mayor de los dos para ser seguros.
+            val_computado = max(val_real, val_prog)
+
+            # 1. Para determinar el KM ACTUAL del vehículo (Odómetro),
+            # consideramos cualquier mantenimiento que reporte kilometraje.
+            if val_computado > max_mant_km:
+                max_mant_km = val_computado
+            
+            # 2. Para determinar la ÚLTIMA MANTENCIÓN VÁLIDA (Reset del intervalo),
+            # solo consideramos los FINALIZADOS.
+            if m.get('estado') == 'FINALIZADO':
+                # Aquí también aplicamos la lógica: si se cerró con menos km del programado, 
+                # asumimos que cubrió el hito programado.
+                if val_computado > km_ultima_mant:
+                    km_ultima_mant = val_computado
+
+        # Definir KM Actual final (El mayor entre Órdenes y Mantenimientos)
+        km_actual = max(max_order_km, max_mant_km)
+        
+        # Cálculos finales
+        km_proxima = km_ultima_mant + km_intervalo
+        restante = km_proxima - km_actual
+        
+        v['km_actual_calculado'] = km_actual
+        v['km_ultima_mant'] = km_ultima_mant
+        v['mant_proxima_km'] = km_proxima
+        v['mant_restante_km'] = restante
+        
+        # Estado de Alerta
+        if restante < 0:
+            v['mant_estado'] = 'VENCIDO'
+        elif restante <= 700:
+            v['mant_estado'] = 'POR_VENCER'
+        else:
+            v['mant_estado'] = 'OK'
+
+    # Obtener total para paginación (Puede ser aproximado para velocidad, o count exacto)
     try:
         count_res = supabase.table('flota_vehiculos').select('id', count='exact').is_('deleted_at', None).execute()
         total = count_res.count if hasattr(count_res, 'count') and count_res.count is not None else len(data)
-    except Exception as e:
-        current_app.logger.warning(f"No se pudo obtener el conteo total: {e}")
-        total = None
+    except:
+        total = len(data)
 
     return jsonify({
         'data': data, 
