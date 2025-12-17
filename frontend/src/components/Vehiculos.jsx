@@ -3,7 +3,7 @@ import { apiFetch } from '../lib/api'
 import { supabase } from '../lib/supabase'; // Importamos supabase para Storage
 import './Vehiculos.css'
 
-// === HELPERS DE BASE (sin cambios) ===
+// === HELPERS DE BASE ===
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -38,23 +38,15 @@ const formatDateForInput = (dateString) => {
     } catch (e) { return ''; }
 };
 
-// Estado inicial del formulario de vehículo
-const initialFormState = {
-    placa: '',
-    marca: '',
-    modelo: '',
-    ano: '',
-    tipo: '',
-    color: '',
-    vin: '',
-    numero_chasis: '',
-    capacidad_pasajeros: '',
-    capacidad_kg: '',
-    observaciones: '',
-    km_intervalo_mantencion: '10000' // <--- NUEVO CAMPO (Valor sugerido)
+const formatLocalDate = (dateString) => {
+    if (!dateString) return '-';
+    try {
+        const date = new Date(dateString);
+        return new Date(date.getTime() + date.getTimezoneOffset() * 60000).toLocaleDateString('es-CL');
+    } catch (e) { return dateString; }
 };
 
-// --- COMPONENTES AUXILIARES DE ADJUNTOS (adaptados para Documentos Vehiculares) ---
+// --- COMPONENTES AUXILIARES DE ADJUNTOS ---
 
 const DocAdjuntoUploader = ({ documentoId, onUploadSuccess, disabled }) => {
     const [isUploading, setIsUploading] = useState(false);
@@ -80,26 +72,18 @@ const DocAdjuntoUploader = ({ documentoId, onUploadSuccess, disabled }) => {
         setUploadError(null);
         
         try {
-            // 1. Sanitizar nombre y crear path
             const fileExt = file.name.split('.').pop().toLowerCase();
             const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
                 .toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/__+/g, '_');
             const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
             const filePath = `doc_vehiculo/${documentoId}/${safeFileName}`; 
 
-            // 2. Subir a Supabase Storage
-            console.log('Subiendo archivo a:', filePath);
             const { error: uploadError } = await supabase.storage
                 .from('adjuntos_ordenes') 
                 .upload(filePath, file);
 
-            if (uploadError) {
-                console.error('Error de Supabase:', uploadError);
-                throw new Error(`Error al subir archivo: ${uploadError.message}`);
-            }
+            if (uploadError) throw new Error(`Error al subir archivo: ${uploadError.message}`);
 
-            // 3. Guardar en Backend
-            console.log('Guardando en backend...');
             const res = await apiFetch(`/api/vehiculos/documentos/${documentoId}/adjuntos`, {
                 method: 'POST',
                 body: {
@@ -110,8 +94,7 @@ const DocAdjuntoUploader = ({ documentoId, onUploadSuccess, disabled }) => {
             });
 
             if (res.status === 201) {
-                console.log('Archivo guardado exitosamente');
-                onUploadSuccess(res.data); // res.data ya contiene el objeto del adjunto
+                onUploadSuccess(res.data);
             } else {
                 throw new Error(res.data?.message || 'Error guardando adjunto en base de datos');
             }
@@ -132,12 +115,9 @@ const DocAdjuntoUploader = ({ documentoId, onUploadSuccess, disabled }) => {
                     type="file" 
                     id={`doc-file-upload`}
                     onChange={(e) => {
-                        // Prevenir errores no controlados
-                        try {
-                            handleFileChange(e);
-                        } catch (err) {
-                            console.error('Error no controlado en handleFileChange:', err);
-                            setUploadError('Error interno al procesar archivo');
+                        try { handleFileChange(e); } catch (err) {
+                            console.error('Error no controlado:', err);
+                            setUploadError('Error interno');
                             e.target.value = null;
                         }
                     }}
@@ -154,13 +134,6 @@ const DocAdjuntoUploader = ({ documentoId, onUploadSuccess, disabled }) => {
 };
 
 const DocAdjuntosList = ({ adjuntos, loading, onDelete }) => {
-    
-    const getPublicUrl = (storagePath) => {
-        try {
-            const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(storagePath);
-            return data.publicUrl;
-        } catch (e) { return '#'; }
-    };
     const openPreview = async (adj) => {
         if (!adj) return;
         if (adj.publicUrl) {
@@ -176,9 +149,10 @@ const DocAdjuntosList = ({ adjuntos, loading, onDelete }) => {
                 const blobUrl = URL.createObjectURL(blob);
                 window.open(blobUrl, '_blank', 'noopener,noreferrer');
                 setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-            } else console.error('Error fetching preview ', res.status);
+            }
         } catch (e) { console.error('Error opening preview', e); }
     };
+
     const downloadAdjunto = async (adj) => {
         try {
             const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -194,7 +168,7 @@ const DocAdjuntosList = ({ adjuntos, loading, onDelete }) => {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(downloadUrl);
-            } else console.error('Error downloading adj: ', res.status);
+            }
         } catch (e) { console.error('Error downloading adj', e); }
     };
     
@@ -232,9 +206,9 @@ const DocAdjuntosList = ({ adjuntos, loading, onDelete }) => {
     );
 };
 
-// --- MODAL ANIDADO PARA CREAR/EDITAR DOCUMENTO ---
+// --- MODALES (DocumentoFormModal y VehiculoFormModal) ---
 
-const DocumentoFormModal = ({ isOpen, onClose, onSave, onDelete, editingDocument, vehiculoId, apiError, submitting, isNested = false }) => {
+const DocumentoFormModal = ({ isOpen, onClose, onSave, onDelete, editingDocument, vehiculoId, apiError, submitting }) => {
     const [form, setForm] = useState({});
     const [activeTab, setActiveTab] = useState('detalle');
     const [adjuntos, setAdjuntos] = useState([]);
@@ -275,7 +249,7 @@ const DocumentoFormModal = ({ isOpen, onClose, onSave, onDelete, editingDocument
             setAdjuntos([]);
         }
         setActiveTab('detalle');
-    }, [editingDocument, isOpen, vehiculoId]); // Removido fetchAdjuntos de dependencias
+    }, [editingDocument, isOpen, vehiculoId, fetchAdjuntos]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -292,7 +266,6 @@ const DocumentoFormModal = ({ isOpen, onClose, onSave, onDelete, editingDocument
     };
     
     const handleUploadSuccess = (adjuntoData) => {
-        // adjuntoData ya es el objeto del adjunto creado
         setAdjuntos(prev => [adjuntoData, ...prev]);
     };
 
@@ -315,97 +288,90 @@ const DocumentoFormModal = ({ isOpen, onClose, onSave, onDelete, editingDocument
 
     if (!isOpen) return null;
 
-    const modalJSX = (
-        <div className="modal-content modal-large modal-nested" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header-pro">
-                <h3>{docIdActual ? `Editar Documento #${docIdActual}` : 'Registrar Nuevo Documento'}</h3>
-                <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="modal-close-pro" type="button">×</button>
-            </div>
-            
-            <form onSubmit={handleSubmit}>
-                {apiError && <div className="modal-error-pro"><span>⚠</span><span>{apiError}</span></div>}
-
-                <div className="modal-tabs">
-                    <button type="button" className={`tab-button ${activeTab === 'detalle' ? 'active' : ''}`} onClick={() => setActiveTab('detalle')}>📋 Detalle y Fechas</button>
-                    <button type="button" className={`tab-button ${activeTab === 'adjuntos' ? 'active' : ''}`} onClick={() => setActiveTab('adjuntos')} disabled={!docIdActual}>📎 Archivos ({adjuntos.length})</button>
-                </div>
-
-                <div className="modal-body-pro">
-                    {activeTab === 'detalle' && (
-                        <div className="form-section-pro">
-                            <h4 className="section-title-pro">Información de Validez</h4>
-                            <div className="form-grid-2">
-                                <div className="form-group-pro">
-                                    <label>Tipo de Documento <span className="required-star">*</span></label>
-                                    <select name="tipo_documento" value={form.tipo_documento} onChange={handleChange} required>
-                                        <option value="">Seleccionar tipo</option>
-                                        <option value="PERMISO_CIRCULACION">PERMISO DE CIRCULACIÓN</option>
-                                        <option value="SEGURO_OBLIGATORIO">SEGURO OBLIGATORIO (SOAP)</option>
-                                        <option value="REVISION_TECNICA">REVISIÓN TÉCNICA (ITV/VTV)</option>
-                                        <option value="OTROS">OTROS</option>
-                                    </select>
-                                </div>
-                                <div className="form-group-pro">
-                                    <label>Número de Documento</label>
-                                    <input name="numero_documento" value={form.numero_documento} onChange={handleChange} />
-                                </div>
-                                <div className="form-group-pro">
-                                    <label>Fecha de Emisión</label>
-                                    <input name="fecha_emision" type="date" value={form.fecha_emision} onChange={handleChange} />
-                                </div>
-                                <div className="form-group-pro">
-                                    <label>Fecha de Vencimiento <span className="required-star">*</span></label>
-                                    <input name="fecha_vencimiento" type="date" value={form.fecha_vencimiento} onChange={handleChange} required />
-                                </div>
-                            </div>
-                            <div className="form-group-pro" style={{marginTop: '1.25rem'}}>
-                                <label>Observaciones</label>
-                                <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="3" className="textarea-pro"></textarea>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {activeTab === 'adjuntos' && (
-                        <div className="form-section-pro">
-                            <h4 className="section-title-pro">Archivos del Documento</h4>
-                            <DocAdjuntoUploader 
-                                documentoId={docIdActual} 
-                                onUploadSuccess={handleUploadSuccess}
-                                disabled={!docIdActual}
-                            />
-                            <div style={{marginTop: '1.5rem'}}>
-                                <DocAdjuntosList 
-                                    adjuntos={adjuntos}
-                                    loading={loadingAdjuntos}
-                                    onDelete={handleDeleteAdjunto}
-                                />
-                            </div>
-                        </div>
-                    )}
-                </div>
-                
-                <div className="modal-footer-pro">
-                    {docIdActual && <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(docIdActual); }} className="btn btn-danger-pro" disabled={submitting}>🗑️ Eliminar</button>}
-                    <button type="button" onClick={(e) => { e.stopPropagation(); onClose(); }} className="btn btn-secondary-pro" disabled={submitting}>Cancelar</button>
-                    <button type="submit" disabled={isFormInvalid || submitting} className="btn btn-primary-pro">
-                        {submitting ? '⏳ Guardando...' : (docIdActual ? '💾 Actualizar Documento' : '➕ Crear Documento')}
-                    </button>
-                </div>
-            </form>
-        </div>
-    );
-
     return (
         <div className="modal-overlay-nested" onClick={onClose}>
-            {modalJSX}
+            <div className="modal-content modal-large modal-nested" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header-pro">
+                    <h3>{docIdActual ? `Editar Documento #${docIdActual}` : 'Registrar Nuevo Documento'}</h3>
+                    <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="modal-close-pro" type="button">×</button>
+                </div>
+                
+                <form onSubmit={handleSubmit}>
+                    {apiError && <div className="modal-error-pro"><span>⚠</span><span>{apiError}</span></div>}
+
+                    <div className="modal-tabs">
+                        <button type="button" className={`tab-button ${activeTab === 'detalle' ? 'active' : ''}`} onClick={() => setActiveTab('detalle')}>📋 Detalle y Fechas</button>
+                        <button type="button" className={`tab-button ${activeTab === 'adjuntos' ? 'active' : ''}`} onClick={() => setActiveTab('adjuntos')} disabled={!docIdActual}>📎 Archivos ({adjuntos.length})</button>
+                    </div>
+
+                    <div className="modal-body-pro">
+                        {activeTab === 'detalle' && (
+                            <div className="form-section-pro">
+                                <h4 className="section-title-pro">Información de Validez</h4>
+                                <div className="form-grid-2">
+                                    <div className="form-group-pro">
+                                        <label>Tipo de Documento <span className="required-star">*</span></label>
+                                        <select name="tipo_documento" value={form.tipo_documento} onChange={handleChange} required>
+                                            <option value="">Seleccionar tipo</option>
+                                            <option value="PERMISO_CIRCULACION">PERMISO DE CIRCULACIÓN</option>
+                                            <option value="SEGURO_OBLIGATORIO">SEGURO OBLIGATORIO (SOAP)</option>
+                                            <option value="REVISION_TECNICA">REVISIÓN TÉCNICA (ITV/VTV)</option>
+                                            <option value="OTROS">OTROS</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group-pro">
+                                        <label>Número de Documento</label>
+                                        <input name="numero_documento" value={form.numero_documento} onChange={handleChange} />
+                                    </div>
+                                    <div className="form-group-pro">
+                                        <label>Fecha de Emisión</label>
+                                        <input name="fecha_emision" type="date" value={form.fecha_emision} onChange={handleChange} />
+                                    </div>
+                                    <div className="form-group-pro">
+                                        <label>Fecha de Vencimiento <span className="required-star">*</span></label>
+                                        <input name="fecha_vencimiento" type="date" value={form.fecha_vencimiento} onChange={handleChange} required />
+                                    </div>
+                                </div>
+                                <div className="form-group-pro" style={{marginTop: '1.25rem'}}>
+                                    <label>Observaciones</label>
+                                    <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="3" className="textarea-pro"></textarea>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {activeTab === 'adjuntos' && (
+                            <div className="form-section-pro">
+                                <h4 className="section-title-pro">Archivos del Documento</h4>
+                                <DocAdjuntoUploader 
+                                    documentoId={docIdActual} 
+                                    onUploadSuccess={handleUploadSuccess}
+                                    disabled={!docIdActual}
+                                />
+                                <div style={{marginTop: '1.5rem'}}>
+                                    <DocAdjuntosList 
+                                        adjuntos={adjuntos}
+                                        loading={loadingAdjuntos}
+                                        onDelete={handleDeleteAdjunto}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className="modal-footer-pro">
+                        {docIdActual && <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(docIdActual); }} className="btn btn-danger-pro" disabled={submitting}>🗑️ Eliminar</button>}
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onClose(); }} className="btn btn-secondary-pro" disabled={submitting}>Cancelar</button>
+                        <button type="submit" disabled={isFormInvalid || submitting} className="btn btn-primary-pro">
+                            {submitting ? '⏳ Guardando...' : (docIdActual ? '💾 Actualizar Documento' : '➕ Crear Documento')}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     );
 };
 
-// --- MODAL PRINCIPAL DE VEHÍCULOS (MODIFICADO CON PESTAÑA "DOCUMENTOS") ---
-
 const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, submitting }) => {
-    // ... (Estados y helpers existentes) ...
     const [form, setForm] = useState({});
     const [activeTab, setActiveTab] = useState('basico');
     const requiredFields = ['placa', 'marca', 'modelo', 'ano', 'tipo'];
@@ -415,7 +381,6 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
     const [editingDoc, setEditingDoc] = useState(null);
     const [docFormError, setDocFormError] = useState(null);
 
-    // Fetch documents on tab change or save
     const fetchDocuments = useCallback(async (vehId) => {
         if (!vehId) return;
         setLoadingDocs(true);
@@ -429,31 +394,31 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
     useEffect(() => {
         if (editingVehicle) {
             setForm({
-                ...initialFormState,
-                placa: editingVehicle.placa || '',
-                marca: editingVehicle.marca || '',
-                modelo: editingVehicle.modelo || '',
-                ano: editingVehicle.ano || '',
-                tipo: editingVehicle.tipo || '',
-                color: editingVehicle.color || '',
-                vin: editingVehicle.vin || '',
-                capacidad_pasajeros: editingVehicle.capacidad_pasajeros || '',
-                capacidad_kg: editingVehicle.capacidad_kg || '',
-                numero_chasis: editingVehicle.numero_chasis || '',
+                placa: editingVehicle.placa || '', marca: editingVehicle.marca || '',
+                modelo: editingVehicle.modelo || '', ano: editingVehicle.ano || '',
+                tipo: editingVehicle.tipo || '', color: editingVehicle.color || '',
+                vin: editingVehicle.vin || '', capacidad_pasajeros: editingVehicle.capacidad_pasajeros || '',
+                capacidad_kg: editingVehicle.capacidad_kg || '', numero_chasis: editingVehicle.numero_chasis || '',
                 observaciones: editingVehicle.observaciones || '',
-                km_intervalo_mantencion: (editingVehicle.km_intervalo_mantencion !== undefined && editingVehicle.km_intervalo_mantencion !== null) ? String(editingVehicle.km_intervalo_mantencion) : initialFormState.km_intervalo_mantencion
+                // CAMPOS NUEVOS
+                km_intervalo_mantencion: editingVehicle.km_intervalo_mantencion || 10000,
+                tipo_combustible: editingVehicle.tipo_combustible || '',
+                fecha_vencimiento_gases: formatDateForInput(editingVehicle.fecha_vencimiento_gases)
             });
             if (editingVehicle.id) {
                 fetchDocuments(editingVehicle.id);
             }
         } else {
-            setForm({ ...initialFormState });
+            setForm({ 
+                placa: '', marca: '', modelo: '', ano: '', tipo: '', color: '', vin: '', 
+                capacidad_pasajeros: '', capacidad_kg: '', numero_chasis: '', observaciones: '',
+                km_intervalo_mantencion: 10000, tipo_combustible: '', fecha_vencimiento_gases: '' 
+            });
             setDocs([]);
         }
         setActiveTab('basico');
-    }, [editingVehicle, isOpen]); // Removido fetchDocuments de dependencias
+    }, [editingVehicle, isOpen, fetchDocuments]);
 
-    // Reset document modal when parent modal closes
     useEffect(() => {
         if (!isOpen) {
             setDocModalOpen(false);
@@ -465,7 +430,7 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
     const handleChange = (e) => {
         const { name, value, type } = e.target;
         let finalValue = value;
-        if (type !== 'number' && name !== 'observaciones' && typeof value === 'string') {
+        if (type !== 'number' && name !== 'observaciones' && type !== 'date' && typeof value === 'string') {
             finalValue = value.toUpperCase();
         }
         if (type === 'number') {
@@ -483,7 +448,6 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
         onSave(payload, editingVehicle ? editingVehicle.id : null);
     };
     
-    // Document Handlers
     const handleDocSave = async (docData, docId) => {
         setDocFormError(null);
         const url = docId ? `/api/vehiculos/documentos/${docId}` : '/api/vehiculos/documentos';
@@ -494,12 +458,11 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
             if (res && (res.status === 200 || res.status === 201)) {
                 setDocModalOpen(false);
                 setEditingDoc(null);
-                fetchDocuments(editingVehicle.id); // Refresh list
+                fetchDocuments(editingVehicle.id);
             } else {
                 setDocFormError(res.data?.message || 'Error al guardar el documento');
             }
         } catch (err) {
-            console.error('Error guardando documento:', err);
             setDocFormError('Error de conexión al guardar documento');
         }
     };
@@ -516,13 +479,12 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                 alert(res.data?.message || 'No se pudo eliminar el documento');
             }
         } catch (err) {
-            console.error('Error eliminando documento:', err);
             alert('Error de conexión al eliminar documento');
         }
     };
 
     const isFormInvalid = requiredFields.some(field => !form[field]);
-    const canManageDocs = !!editingVehicle; // Solo si el vehículo ya existe
+    const canManageDocs = !!editingVehicle;
 
     if (!isOpen) return null;
 
@@ -531,7 +493,6 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
             <div className="modal-overlay" onClick={onClose}>
                 <div className="modal-content modal-large modal-parent" onClick={(e) => e.stopPropagation()}>
                     <div className="modal-header-pro">
-                        {/* ... (Header) ... */}
                         <div>
                             <h3>{editingVehicle ? 'Editar Vehículo' : 'Registrar Nuevo Vehículo'}</h3>
                             <p className="modal-subtitle">
@@ -557,7 +518,7 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                     </div>
 
                     <div className="modal-body-pro">
-                        {activeTab === 'basico' && ( /* ... (Pestaña Basico) ... */ 
+                        {activeTab === 'basico' && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Identificación del Vehículo</h4>
@@ -602,25 +563,12 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                                             <label>Color</label>
                                             <input name="color" value={form.color} onChange={handleChange} placeholder="Ej: BLANCO" />
                                         </div>
-                                        <div className="form-group-pro">
-                                            <label>Intervalo Mantención (Km)</label>
-                                            <input
-                                                type="number"
-                                                name="km_intervalo_mantencion"
-                                                value={form.km_intervalo_mantencion}
-                                                onChange={handleChange}
-                                                placeholder="Ej: 10000"
-                                            />
-                                            <small style={{color: '#666', fontSize: '0.8em'}}>
-                                                Cada cuántos Km se debe realizar mantención.
-                                            </small>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {activeTab === 'tecnico' && ( /* ... (Pestaña Tecnico) ... */
+                        {activeTab === 'tecnico' && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Números de Serie</h4>
@@ -630,16 +578,38 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                                     </div>
                                 </div>
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Capacidades</h4>
+                                    <h4 className="section-title-pro">Capacidades y Mantenimiento</h4>
                                     <div className="form-grid-2">
-                                        <div className="form-group-pro"><label>Capacidad de Pasajeros</label><input name="capacidad_pasajeros" type="number" value={form.capacidad_pasajeros} onChange={handleChange} placeholder="Ej: 5" min="1" /></div>
-                                        <div className="form-group-pro"><label>Capacidad de Carga (Kg)</label><input name="capacidad_kg" type="number" value={form.capacidad_kg} onChange={handleChange} placeholder="Ej: 2000" min="0" /></div>
+                                        <div className="form-group-pro"><label>Capacidad Pasajeros</label><input name="capacidad_pasajeros" type="number" value={form.capacidad_pasajeros} onChange={handleChange} placeholder="Ej: 5" min="1" /></div>
+                                        <div className="form-group-pro"><label>Capacidad Carga (Kg)</label><input name="capacidad_kg" type="number" value={form.capacidad_kg} onChange={handleChange} placeholder="Ej: 2000" min="0" /></div>
+                                        
+                                        <div className="form-group-pro">
+                                            <label>Intervalo Mant. (Km)</label>
+                                            <input type="number" name="km_intervalo_mantencion" value={form.km_intervalo_mantencion} onChange={handleChange} placeholder="Ej: 10000" />
+                                            <small style={{fontSize: '0.8em', color: '#666'}}>Cada cuántos Km se debe realizar mantención</small>
+                                        </div>
+                                        
+                                        <div className="form-group-pro">
+                                            <label>Combustible</label>
+                                            <select name="tipo_combustible" value={form.tipo_combustible} onChange={handleChange}>
+                                                <option value="">-- Seleccionar --</option>
+                                                <option value="DIESEL">DIESEL</option>
+                                                <option value="GASOLINA">GASOLINA</option>
+                                                <option value="HIBRIDO">HIBRIDO</option>
+                                                <option value="ELECTRICO">ELECTRICO</option>
+                                                <option value="GAS">GAS</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="form-group-pro">
+                                            <label>Vencimiento Gases</label>
+                                            <input type="date" name="fecha_vencimiento_gases" value={form.fecha_vencimiento_gases} onChange={handleChange} />
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         )}
                         
-                        {/* --- NUEVA PESTAÑA: DOCUMENTOS --- */}
                         {activeTab === 'documentos' && canManageDocs && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
@@ -671,14 +641,14 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                                                         const vencimiento = new Date(doc.fecha_vencimiento);
                                                         const hoy = new Date();
                                                         const diasRestantes = Math.ceil((vencimiento - hoy) / (1000 * 60 * 60 * 24));
-                                                        const badgeClass = diasRestantes <= 30 ? (diasRestantes <= 0 ? 'badge-estado-pendiente' : 'badge-estado-programado') : 'badge-tipo-preventivo';
+                                                        const badgeClass = diasRestantes <= 30 ? (diasRestantes <= 0 ? 'badge-vencido' : 'badge-por-vencer') : 'badge-ok';
                                                         
                                                         return (
                                                             <tr key={doc.id}>
                                                                 <td>{doc.tipo_documento}</td>
                                                                 <td>{doc.numero_documento || '-'}</td>
                                                                 <td>{vencimiento.toLocaleDateString()}</td>
-                                                                <td><span className={`badge-mant-estado ${badgeClass}`}>{diasRestantes} días</span></td>
+                                                                <td><span className={`badge-status ${badgeClass}`}>{diasRestantes} días</span></td>
                                                                 <td>
                                                                     <button type="button" onClick={(e) => { e.stopPropagation(); setEditingDoc(doc); setDocFormError(null); setDocModalOpen(true); }} className="btn-icon-pro btn-edit-pro">✏️</button>
                                                                 </td>
@@ -694,16 +664,13 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                             </div>
                         )}
                         
-                        {activeTab === 'adicional' && ( /* ... (Pestaña Adicional) ... */
+                        {activeTab === 'adicional' && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Notas y Observaciones</h4>
                                     <div className="form-group-pro">
                                         <label>Observaciones</label>
-                                        <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="8" placeholder="Agrega notas, características especiales o cualquier información relevante sobre el vehículo..." className="textarea-pro"></textarea>
-                                        <small className="input-hint-pro">
-                                            {form.observaciones?.length || 0} caracteres
-                                        </small>
+                                        <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="8" placeholder="Agrega notas..." className="textarea-pro"></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -720,7 +687,6 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
             </div>
         </div>
         
-        {/* Modal para el CRUD de Documentos - Renderizado FUERA del overlay padre */}
         {isOpen && (
             <DocumentoFormModal 
                 isOpen={docModalOpen} 
@@ -736,8 +702,6 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
         </>
     );
 };
-
-// ... (ConfirmationModal y componente Vehiculos, sin cambios en estructura) ...
 
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitting }) => {
     if (!isOpen) return null;
@@ -762,6 +726,8 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitt
         </div>
     );
 };
+
+// --- COMPONENTE PRINCIPAL ---
 
 function Vehiculos({ user, token }) {
     const [vehiculos, setVehiculos] = useState([]);
@@ -811,7 +777,7 @@ function Vehiculos({ user, token }) {
         }
     }, [token, fetchVehiculos]);
 
-    // Check if there is an 'openVehiculoEdit' key (from other modules) and open modal accordingly
+    // Local Storage logic for opening modal from other modules
     useEffect(() => {
         const openFromStorage = () => {
             try {
@@ -819,23 +785,18 @@ function Vehiculos({ user, token }) {
                 if (!raw) return;
                 const parsed = JSON.parse(raw);
                 if (parsed && parsed.id) {
-                    // Do not fetch vehicle details to open the modal; just set minimal editingVehicle object and let the modal fetch docs
                     setEditingVehicle({ id: parsed.id });
                     setShowModal(true);
                     localStorage.removeItem('openVehiculoEdit');
                 }
             } catch (e) { localStorage.removeItem('openVehiculoEdit'); }
         };
-        // Try once on mount
         openFromStorage();
-        // And listen for navigation events while mounted
         const handler = (e) => {
             try {
                 const detail = e.detail || {};
                 if (detail.module === 'vehiculos') {
-                    // Reload list when we navigate here
                     fetchVehiculos();
-                    // If an edit ID is present in localStorage, open modal
                     openFromStorage();
                 }
             } catch (err) { console.error('Nav handler error', err); }
@@ -883,16 +844,6 @@ function Vehiculos({ user, token }) {
         }
     };
 
-    // Abre el modal de edición asegurando que el campo km_intervalo_mantencion tenga valor por defecto
-    const handleEditClick = (vehiculo) => {
-        setFormError(null);
-        setEditingVehicle({
-            ...vehiculo,
-            km_intervalo_mantencion: (vehiculo.km_intervalo_mantencion !== undefined && vehiculo.km_intervalo_mantencion !== null) ? vehiculo.km_intervalo_mantencion : 10000
-        });
-        setShowModal(true);
-    };
-
     const fetchVehicleAttachments = useCallback(async (vehId) => {
         if (!vehId) return;
         setAttachmentsLoading(true);
@@ -902,14 +853,8 @@ function Vehiculos({ user, token }) {
                 setAttachmentsList(res.data.data || []);
             } else {
                 setAttachmentsList([]);
-                setError(res.data?.message || 'Error cargando adjuntos');
             }
-        } catch (err) {
-            setAttachmentsList([]);
-            setError('Error de conexión');
-        } finally {
-            setAttachmentsLoading(false);
-        }
+        } catch (err) { setAttachmentsList([]); } finally { setAttachmentsLoading(false); }
     }, []);
 
     const openAttachments = (veh) => {
@@ -918,29 +863,23 @@ function Vehiculos({ user, token }) {
         fetchVehicleAttachments(veh.id);
     };
 
-    const closeAttachments = () => {
-        setAttachmentsModalOpen(false);
-        setAttachmentsList([]);
-    };
+    const closeAttachments = () => { setAttachmentsModalOpen(false); setAttachmentsList([]); };
 
     const openPreview = async (adj) => {
         try {
             if (!adj) return;
-            // Prefer backend-provided publicUrl
             if (adj.publicUrl) {
                 setPreview({ open: true, url: adj.publicUrl, name: adj.nombre_archivo, mime: adj.mime_type });
                 return;
             }
-            // Try using Supabase getPublicUrl (public bucket)
             try {
                 const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(adj.storage_path);
                 if (data && data.publicUrl) {
                     setPreview({ open: true, url: data.publicUrl, name: adj.nombre_archivo, mime: adj.mime_type });
                     return;
                 }
-            } catch (e) { /* ignore, fallback to download */ }
+            } catch (e) { /* ignore */ }
 
-            // Fall back to backend download and create a blob URL
             const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
             const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
             const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
@@ -948,91 +887,71 @@ function Vehiculos({ user, token }) {
                 const blob = await res.blob();
                 const blobUrl = URL.createObjectURL(blob);
                 setPreview({ open: true, url: blobUrl, name: adj.nombre_archivo, mime: blob.type });
-                // Revoke after some time (handled when modal is closed)
-            } else {
-                console.error('Error al descargar para preview', res.status);
-                setPreview({ open: true, url: '#', name: adj.nombre_archivo, mime: adj.mime_type });
             }
-        } catch (e) {
-            console.error('Error opening preview', e);
-            setPreview({ open: true, url: '#', name: adj?.nombre_archivo || '', mime: adj?.mime_type || '' });
-        }
-    };
-
-    const downloadAdjunto = async (adj) => {
-        try {
-            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
-            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
-            if (res.ok) {
-                const blob = await res.blob();
-                const downloadUrl = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.download = adj.nombre_archivo || 'file';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(downloadUrl);
-            } else console.error('Error downloading adj: ', res.status);
-        } catch (e) { console.error('Error downloading adj', e); }
+        } catch (e) { console.error(e); }
     };
 
     const closePreview = () => {
-        try {
-            if (preview && preview.url && preview.url.startsWith('blob:')) {
-                URL.revokeObjectURL(preview.url);
-            }
-        } catch (e) { /* ignore */ }
+        try { if (preview.url.startsWith('blob:')) URL.revokeObjectURL(preview.url); } catch (e) {}
         setPreview({ open: false, url: '#', name: '', mime: '' });
     };
 
-    // Función auxiliar para renderizar estado de mantención
+    // --- NUEVAS FUNCIONES DE RENDERIZADO VISUAL ---
+    
     const renderEstadoMant = (v) => {
-        if (!v) return null;
+        if (!v.mant_estado) return <span className="badge-status badge-neutro">-</span>;
+        
+        let clase = 'badge-ok';
+        let icon = '✅';
+        let text = 'OK';
+        
         if (v.mant_estado === 'VENCIDO') {
-            return (
-                <span className="badge badge-vencido" title={`Pasado por ${Math.abs(v.mant_restante_km || 0).toLocaleString()} km`}>
-                    ⚠️ VENCIDO
-                </span>
-            );
+            clase = 'badge-vencido';
+            icon = '⚠️';
+            text = 'VENCIDO';
         } else if (v.mant_estado === 'POR_VENCER') {
-            return (
-                <span className="badge badge-por-vencer">
-                    ⏱️ PRÓXIMO ({v.mant_restante_km ? v.mant_restante_km.toLocaleString() : '-'} km)
-                </span>
-            );
-        } else {
-            return (
-                <span className="badge badge-ok">✅ OK</span>
-            );
+            clase = 'badge-por-vencer';
+            icon = '⏱️';
+            text = 'PRÓXIMO';
         }
-    };
-
-    const handleRowClick = (veh) => {
-        setEditingVehicle(veh);
-        setShowModal(true);
-    };
-
-    const handleDeleteClick = (vehId) => {
-        const v = vehiculos.find(x => x.id === vehId);
-        setDeletingVehicle(v || { id: vehId });
-    };
-
-    if (!token) {
+        
         return (
-            <div className="vehiculos-container">
-                <div className="loading-state">Cargando módulo de vehículos...</div>
+            <span className={`badge-status ${clase}`} title={`Restan ${v.mant_restante_km} km`}>
+                {icon} {text} <small style={{opacity: 0.8, marginLeft: 4}}>({v.mant_restante_km})</small>
+            </span>
+        );
+    };
+
+    const renderEstadoGases = (v) => {
+        if (!v.fecha_vencimiento_gases) return <span className="badge-status badge-neutro">-</span>;
+        
+        const fecha = formatLocalDate(v.fecha_vencimiento_gases);
+        let clase = 'badge-ok';
+        let icon = '✅';
+        
+        if (v.gases_estado === 'VENCIDO') {
+            clase = 'badge-vencido';
+            icon = '⚠️';
+        } else if (v.gases_estado === 'POR_VENCER') {
+            clase = 'badge-por-vencer';
+            icon = '⏱️';
+        }
+        
+        return (
+            <div className={`badge-status ${clase}`} title={v.gases_estado}>
+                {icon} {fecha}
             </div>
         );
-    }
+    };
+
+    if (!token) return <div className="loading-state">Cargando...</div>;
 
     return (
         <div className="vehiculos-container">
             <div className="vehiculos-header">
                 <div>
                     <h2>Gestión de Vehículos</h2>
-                    <p className="header-subtitle">Administra la flota de vehículos de la empresa</p>
+                    <p className="header-subtitle">Administra la flota de vehículos</p>
                 </div>
                 {canWrite && (
                     <button onClick={() => { setEditingVehicle(null); setFormError(null); setShowModal(true); }} className="btn btn-primary">
@@ -1057,46 +976,77 @@ function Vehiculos({ user, token }) {
             {error && <div className="alert-error-pro">⚠️ {error}</div>}
 
             <div className="table-container">
-                <div className="table-responsive">
+                {loading && vehiculos.length === 0 ? (
+                    <div className="loading-state">Cargando vehículos...</div>
+                ) : (
                     <table className="vehiculos-table">
                         <thead>
                             <tr>
                                 <th>Placa</th>
                                 <th>Marca/Modelo</th>
-                                <th>Tipo</th>
                                 <th>Año</th>
+                                <th>Tipo</th>
+                                {/* COLUMNAS NUEVAS */}
                                 <th>Km Actual</th>
-                                <th>Prox. Mant.</th>
                                 <th>Estado Mant.</th>
-                                <th>Acciones</th>
+                                <th>Gases</th>
+                                {(canWrite || isAdmin) && <th>Acciones</th>}
                             </tr>
                         </thead>
                         <tbody>
-                            {vehiculos.map((vehiculo) => (
-                                <tr key={vehiculo.id}>
-                                    <td onClick={() => handleRowClick(vehiculo)} className="clickable-cell"><strong>{vehiculo.placa}</strong></td>
-                                    <td>{vehiculo.marca} {vehiculo.modelo}</td>
-                                    <td>{vehiculo.tipo}</td>
-                                    <td>{vehiculo.ano}</td>
-                                    <td>{vehiculo.km_actual_calculado ? vehiculo.km_actual_calculado.toLocaleString() : '0'} km</td>
-                                    <td>{vehiculo.mant_proxima_km ? vehiculo.mant_proxima_km.toLocaleString() : '-'} km</td>
-                                    <td>{renderEstadoMant(vehiculo)}</td>
-                                    <td className="actions-cell">
-                                        <button className="btn-icon" onClick={(e) => { e.stopPropagation(); handleEditClick(vehiculo); }} title="Editar">✏️</button>
-                                        <button className="btn-icon delete" onClick={(e) => { e.stopPropagation(); handleDeleteClick(vehiculo.id); }} title="Eliminar">🗑️</button>
-                                    </td>
+                            {vehiculos.map(v => (
+                                <tr key={v.id}>
+                                    <td><span className="badge-placa">{v.placa}</span></td>
+                                    <td className="wrap-text">{v.marca} {v.modelo}</td>
+                                    <td>{v.ano}</td>
+                                    <td><span className="badge-tipo">{v.tipo}</span></td>
+                                    
+                                    {/* CELDAS NUEVAS */}
+                                    <td>{v.km_actual_calculado ? v.km_actual_calculado.toLocaleString() : '0'}</td>
+                                    <td>{renderEstadoMant(v)}</td>
+                                    <td>{renderEstadoGases(v)}</td>
+                                    
+                                    {(canWrite || isAdmin) && (
+                                        <td>
+                                            <div className="action-buttons-pro">
+                                                {canWrite && (
+                                                    <button 
+                                                        onClick={() => { setEditingVehicle(v); setFormError(null); setShowModal(true); }} 
+                                                        className="btn-icon-pro btn-edit-pro"
+                                                        title="Editar"
+                                                    >
+                                                        ✏️
+                                                    </button>
+                                                )}
+                                                {isAdmin && (
+                                                    <button 
+                                                        onClick={() => setDeletingVehicle(v)} 
+                                                        className="btn-icon-pro btn-delete-pro"
+                                                        title="Eliminar"
+                                                    >
+                                                        🗑️
+                                                    </button>
+                                                )}
+                                                <button
+                                                    className="btn-icon-pro btn-attach-pro"
+                                                    title="Ver adjuntos"
+                                                    onClick={() => openAttachments(v)}
+                                                >
+                                                    📷
+                                                </button>
+                                            </div>
+                                        </td>
+                                    )}
                                 </tr>
                             ))}
-                            {vehiculos.length === 0 && (
-                                <tr>
-                                    <td colSpan="8" className="empty-state">No se encontraron vehículos</td>
-                                </tr>
-                            )}
                         </tbody>
                     </table>
-                </div>
-                {loading && vehiculos.length === 0 && (
-                    <div className="loading-state">Cargando vehículos...</div>
+                )}
+                {vehiculos.length === 0 && !loading && (
+                    <div className="empty-state-pro">
+                        <span className="empty-icon-pro">📦</span>
+                        <p>No se encontraron vehículos</p>
+                    </div>
                 )}
             </div>
 
@@ -1116,93 +1066,47 @@ function Vehiculos({ user, token }) {
                 onClose={() => setDeletingVehicle(null)} 
                 onConfirm={handleConfirmDelete} 
                 title="Confirmar Eliminación"
-                message={`¿Estás seguro de eliminar el vehículo ${deletingVehicle?.placa}? Esta acción no se puede deshacer.`} 
+                message={`¿Estás seguro de eliminar el vehículo ${deletingVehicle?.placa}?`} 
                 submitting={submitting} 
             />
 
-            {/* Modal: Adjuntos por vehículo */}
+            {/* Modal de adjuntos generales */}
             {attachmentsModalOpen && (
                 <div className="adjuntos-modal-overlay" onClick={closeAttachments}>
                     <div className="adjuntos-modal" onClick={(e) => e.stopPropagation()} style={{width: '900px'}}>
                         <div className="adjuntos-modal-header">
-                            <div>
-                                <strong>Archivos del vehículo</strong>
-                                <div style={{fontSize: '0.85rem', color: '#6b7280'}}>Lista de archivos subidos (documentos, órdenes y mantenimientos)</div>
-                            </div>
-                            <div>
-                                <button onClick={closeAttachments} className="modal-close-btn">Cerrar ✖</button>
-                            </div>
+                            <div><strong>Archivos del vehículo</strong></div>
+                            <div><button onClick={closeAttachments} className="modal-close-btn">✖</button></div>
                         </div>
                         <div className="adjuntos-modal-body" style={{padding: '1rem'}}>
-                            {attachmentsLoading ? (
-                                <div className="loading-state">Cargando archivos...</div>
-                            ) : attachmentsList.length === 0 ? (
-                                <div className="empty-state-pro">📂 No se encontraron archivos para este vehículo.</div>
-                            ) : (
-                                <div style={{display: 'grid', gap: '0.5rem'}}>
-                                    {attachmentsList.map(adj => (
-                                        <div key={`${adj.tipo_entidad}-${adj.id}`} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem', borderRadius: '6px', background: 'white', border: '1px solid var(--color-border)'}}>
-                                            <div style={{display: 'flex', gap: '0.75rem', alignItems: 'center'}}>
-                                                <div style={{fontSize: '1.4rem'}}>{adj.mime_type?.includes('image') ? '🖼️' : '📄'}</div>
-                                                <div>
-                                                    <div style={{fontWeight: 600}}>{adj.nombre_archivo || adj.storage_path}</div>
-                                                    <div style={{fontSize: '0.82rem', color: '#6b7280'}}>{adj.tipo_entidad} • ID: {adj.entidad_id}</div>
-                                                </div>
-                                            </div>
-                                            <div style={{display: 'flex', gap: '0.5rem'}}>
-                                                <button className="btn btn-primary" onClick={() => openPreview(adj)}>👁️ Ver</button>
-                                                <button className="btn btn-secondary" onClick={() => openPreview(adj)}>Abrir</button>
-                                                <button className="btn" onClick={async () => { 
-                                                    try {
-                                                        const token = localStorage.getItem('token');
-                                                        const res = await fetch(`/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`, {
-                                                            headers: { 'Authorization': `Bearer ${token}` }
-                                                        });
-                                                        if (res.ok) {
-                                                            const blob = await res.blob();
-                                                            const url = window.URL.createObjectURL(blob);
-                                                            const a = document.createElement('a');
-                                                            a.href = url;
-                                                            a.download = adj.nombre_archivo || 'file';
-                                                            document.body.appendChild(a);
-                                                            a.click();
-                                                            document.body.removeChild(a);
-                                                            window.URL.revokeObjectURL(url);
-                                                        } else {
-                                                            alert('Error al descargar archivo');
-                                                        }
-                                                    } catch(e) { alert('Error de conexión'); }
-                                                }}>⬇️ Descargar</button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            {attachmentsLoading ? <div className="loading-state">Cargando...</div> : 
+                             attachmentsList.length === 0 ? <div className="empty-state-pro">📂 Sin archivos.</div> :
+                             <div style={{display: 'grid', gap: '0.5rem'}}>
+                                {attachmentsList.map(adj => (
+                                    <div key={adj.id} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem', border: '1px solid #eee'}}>
+                                        <div>{adj.nombre_archivo}</div>
+                                        <button className="btn btn-primary" onClick={() => openPreview(adj)}>Ver</button>
+                                    </div>
+                                ))}
+                             </div>
+                            }
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Preview Modal sencillo */}
+            {/* Modal Preview */}
             {preview.open && (
                 <div className="adjuntos-modal-overlay" onClick={closePreview}>
                     <div className="adjuntos-modal" onClick={(e) => e.stopPropagation()} style={{width: '80%'}}>
                         <div className="adjuntos-modal-header">
                             <div><strong>{preview.name}</strong></div>
-                            <div><button onClick={closePreview} className="modal-close-btn">Cerrar ✖</button></div>
+                            <div><button onClick={closePreview} className="modal-close-btn">✖</button></div>
                         </div>
                         <div className="adjuntos-modal-body">
-                            {preview.mime.includes('image') ? (
-                                <img src={preview.url} alt={preview.name} className="adjuntos-modal-image" />
-                            ) : preview.mime.includes('pdf') ? (
-                                <iframe src={preview.url} className="adjuntos-modal-iframe" title={preview.name} />
-                            ) : (
-                                <div style={{textAlign: 'center'}}>
-                                    <div style={{fontSize: '3rem'}}>📎</div>
-                                    <p>{preview.name}</p>
-                                    <a href={preview.url} target="_blank" rel="noopener noreferrer">Abrir en nueva pestaña</a>
-                                </div>
-                            )}
+                            {preview.mime.includes('image') ? <img src={preview.url} className="adjuntos-modal-image" /> : 
+                             preview.mime.includes('pdf') ? <iframe src={preview.url} className="adjuntos-modal-iframe" /> : 
+                             <p>Vista previa no disponible.</p>}
                         </div>
                     </div>
                 </div>

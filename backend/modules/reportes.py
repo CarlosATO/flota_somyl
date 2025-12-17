@@ -345,7 +345,9 @@ def get_analisis_vehiculos():
     Obtiene análisis completo de vehículos con:
     - Métricas de consumo de combustible
     - Estado de documentos obligatorios
-    - Mantenimientos pendientes (Costo y Detalle)
+    - Mantenimientos pendientes
+    - Control de Gases
+    - Lógica robusta de Kilometraje Actual (Ordenes vs Mantenciones)
     """
     try:
         supabase = current_app.config.get('SUPABASE')
@@ -354,11 +356,12 @@ def get_analisis_vehiculos():
 
         # 1. Obtener vehículos
         vehiculos_res = supabase.table('flota_vehiculos').select(
-            'id, placa, marca, modelo, ano, tipo'
+            'id, placa, marca, modelo, ano, tipo, fecha_vencimiento_gases, tipo_combustible'
         ).is_('deleted_at', None).order('placa').execute()
         vehiculos = vehiculos_res.data or []
-        
-        # 2. Obtener combustible
+        vehiculo_ids = [v['id'] for v in vehiculos]
+
+        # 2. Obtener combustible (para cálculo de rendimiento)
         combustible_res = supabase.table('flota_combustible').select(
             'vehiculo_id, kilometraje, litros_cargados, costo_total, fecha_carga'
         ).execute()
@@ -370,13 +373,65 @@ def get_analisis_vehiculos():
         ).is_('deleted_at', None).execute()
         documentos = documentos_res.data or []
 
-        # 4. Obtener mantenimientos pendientes
+        # 4. Obtener Mantenimientos (PENDIENTES y FINALIZADOS para historial)
+        # Traemos todo lo necesario para calcular costos pendientes y última mantención
         mantenimientos_res = supabase.table('flota_mantenimientos').select(
-            'vehiculo_id, costo, descripcion, tipo_mantenimiento'
-        ).in_('estado', ['PROGRAMADO', 'PENDIENTE', 'EN_TALLER']).is_('deleted_at', None).execute()
-        mantenimientos = mantenimientos_res.data or []
-        
-        # 5. Procesar
+            'vehiculo_id, costo, descripcion, tipo_mantenimiento, estado, km_realizacion, km_programado, fecha_realizacion'
+        ).is_('deleted_at', None).execute()
+        todos_mantenimientos = mantenimientos_res.data or []
+
+        # 5. Obtener Órdenes (Solo necesitamos el max KM por vehículo)
+        ordenes_res = supabase.table('flota_ordenes').select(
+            'vehiculo_id, kilometraje_fin'
+        ).not_.is_('kilometraje_fin', 'null').execute()
+        todas_ordenes = ordenes_res.data or []
+
+        # --- PROCESAMIENTO EN MEMORIA (Optimización) ---
+
+        # A. Calcular Max KM Ordenes por vehículo
+        max_km_ordenes = {}
+        for o in todas_ordenes:
+            vid = o.get('vehiculo_id')
+            km = int(float(o.get('kilometraje_fin') or 0))
+            if vid not in max_km_ordenes: max_km_ordenes[vid] = 0
+            if km > max_km_ordenes[vid]: max_km_ordenes[vid] = km
+
+        # B. Procesar Mantenimientos (Pendientes y Último Realizado)
+        mants_por_vehiculo = {} # Para pendientes
+        historial_mant_por_vehiculo = {} # Para última realizada
+        max_km_mant = {} # Para KM actual
+
+        for m in todos_mantenimientos:
+            vid = m.get('vehiculo_id')
+            estado = m.get('estado')
+            
+            # Agrupar pendientes/programados
+            if estado in ['PROGRAMADO', 'PENDIENTE', 'EN_TALLER']:
+                if vid not in mants_por_vehiculo: mants_por_vehiculo[vid] = []
+                mants_por_vehiculo[vid].append(m)
+            
+            # Calcular KM máximo reportado en mantenimientos
+            km_r = int(float(m.get('km_realizacion') or 0))
+            km_p = int(float(m.get('km_programado') or 0))
+            km_val = max(km_r, km_p)
+            
+            if vid not in max_km_mant: max_km_mant[vid] = 0
+            if km_val > max_km_mant[vid]: max_km_mant[vid] = km_val
+
+            # Buscar última mantención FINALIZADA
+            if estado == 'FINALIZADO':
+                if vid not in historial_mant_por_vehiculo:
+                    historial_mant_por_vehiculo[vid] = {'fecha': '1900-01-01', 'km': 0}
+                
+                fecha_m = m.get('fecha_realizacion') or '1900-01-01'
+                # Comparamos fechas strings ISO (funciona bien YYYY-MM-DD)
+                if fecha_m > historial_mant_por_vehiculo[vid]['fecha']:
+                    historial_mant_por_vehiculo[vid] = {
+                        'fecha': fecha_m,
+                        'km': km_val
+                    }
+
+        # 6. Construir resultado final
         hoy = datetime.now().date()
         resultado = []
         
@@ -391,7 +446,18 @@ def get_analisis_vehiculos():
         for vehiculo in vehiculos:
             vehiculo_id = vehiculo['id']
             
-            # -- Combustible --
+            # -- Cálculo Kilometraje Actual Robusto --
+            km_ord = max_km_ordenes.get(vehiculo_id, 0)
+            km_man = max_km_mant.get(vehiculo_id, 0)
+            km_actual_real = max(km_ord, km_man)
+
+            # -- Datos Última Mantención --
+            last_mant = historial_mant_por_vehiculo.get(vehiculo_id, None)
+            fecha_ultima_mant = last_mant['fecha'] if last_mant and last_mant['fecha'] != '1900-01-01' else None
+            km_ultima_mant = last_mant['km'] if last_mant else 0
+
+            # -- Combustible (Rendimiento) --
+            # Nota: El rendimiento se sigue calculando con los datos de cargas para mantener consistencia de "litros vs km recorridos entre cargas"
             cargas_vehiculo = [c for c in cargas if c.get('vehiculo_id') == vehiculo_id]
             if len(cargas_vehiculo) >= 2:
                 cargas_ordenadas = sorted(cargas_vehiculo, key=lambda x: x.get('kilometraje', 0))
@@ -406,25 +472,22 @@ def get_analisis_vehiculos():
                     promedio_l_km = round(total_litros / km_recorridos, 2)
                     costo_por_km = round(total_costo / km_recorridos, 0)
                 else:
-                    promedio_l_km = 0
-                    costo_por_km = 0
-                ultimo_km = km_max
+                    promedio_l_km, costo_por_km = 0, 0
             else:
-                promedio_l_km, costo_por_km, total_costo, ultimo_km = 0, 0, 0, 0
+                promedio_l_km, costo_por_km = 0, 0
             
             hace_30_dias = (datetime.now() - timedelta(days=30)).isoformat()
             cargas_mes = [c for c in cargas_vehiculo if c.get('fecha_carga', '') and c.get('fecha_carga') >= hace_30_dias]
             total_mes = sum(float(c.get('costo_total') or 0) for c in cargas_mes)
 
-            # -- Mantenimientos Pendientes --
-            mants_vehiculo = [m for m in mantenimientos if m.get('vehiculo_id') == vehiculo_id]
-            costo_mant_pendiente = sum(float(m.get('costo') or 0) for m in mants_vehiculo)
+            # -- Mantenimientos Pendientes (Costos) --
+            mis_mants_pendientes = mants_por_vehiculo.get(vehiculo_id, [])
+            costo_mant_pendiente = sum(float(m.get('costo') or 0) for m in mis_mants_pendientes)
             descripciones = []
-            for m in mants_vehiculo:
+            for m in mis_mants_pendientes:
                 tipo = m.get('tipo_mantenimiento') or 'MANT'
                 desc = m.get('descripcion') or ''
-                if desc:
-                    descripciones.append(f"{tipo}: {desc}")
+                if desc: descripciones.append(f"{tipo}: {desc}")
             detalle_mant_pendiente = " | ".join(descripciones) if descripciones else "-"
             
             # -- Documentos --
@@ -451,6 +514,19 @@ def get_analisis_vehiculos():
                             tipos_docs['soap'] = doc_obj
                             tipos_docs['seguro_obligatorio'] = doc_obj
                     except: continue
+
+            # -- Gases --
+            fecha_gases = vehiculo.get('fecha_vencimiento_gases')
+            tipo_combustible = vehiculo.get('tipo_combustible')
+            gases_obj = None
+            if fecha_gases:
+                try:
+                    fg = datetime.strptime(fecha_gases, '%Y-%m-%d').date()
+                    dias_gases = (fg - hoy).days
+                    umbral = 30 if tipo_combustible == 'DIESEL' else 15
+                    estado_gases = 'VENCIDO' if dias_gases < 0 else 'POR_VENCER' if dias_gases <= umbral else 'VIGENTE'
+                    gases_obj = {'fecha_vencimiento': fecha_gases, 'dias_restantes': dias_gases, 'estado': estado_gases}
+                except: gases_obj = None
             
             resultado.append({
                 'id': vehiculo_id,
@@ -462,9 +538,15 @@ def get_analisis_vehiculos():
                 'promedio_l_km': promedio_l_km,
                 'costo_por_km': costo_por_km,
                 'total_gastado_mes': round(total_mes, 0),
-                'ultimo_km': ultimo_km,
+                
+                # DATOS ACTUALIZADOS
+                'ultimo_km': km_actual_real, # <--- Ahora es el cálculo robusto
+                'fecha_ultima_mant': fecha_ultima_mant, # <--- Nuevo
+                'km_ultima_mant': km_ultima_mant,       # <--- Nuevo
+                
                 'costo_mant_pendiente': costo_mant_pendiente,
                 'detalle_mant_pendiente': detalle_mant_pendiente,
+                'gases': gases_obj,
                 'permiso_circulacion': tipos_docs.get('permiso_circulacion'),
                 'revision_tecnica': tipos_docs.get('revision_tecnica'),
                 'soap': tipos_docs.get('soap'),

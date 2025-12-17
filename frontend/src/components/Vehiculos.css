@@ -655,3 +655,53 @@
     padding: 0.75rem 1rem;
   }
 }
+
+/* --- NUEVOS ESTILOS PARA ESTADOS Y FECHAS --- */
+
+.badge-status {
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap; /* CLAVE: Evita que el texto baje de línea */
+  line-height: 1;
+}
+
+.badge-vencido {
+  background-color: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.badge-por-vencer {
+  background-color: #ffedd5;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+.badge-ok {
+  background-color: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.badge-neutro {
+  background-color: #f3f4f6;
+  color: #4b5563;
+  border: 1px solid #e5e7eb;
+}
+
+/* Ajustes específicos para la tabla */
+.vehiculos-table th, 
+.vehiculos-table td {
+  white-space: nowrap; /* Fuerza una sola línea por defecto en celdas críticas */
+}
+
+/* Si quieres que columnas como Marca/Modelo sí puedan tener saltos si son muy largas */
+.vehiculos-table td.wrap-text {
+  white-space: normal;
+  min-width: 150px;
+}

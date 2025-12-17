@@ -411,6 +411,46 @@
   background: white;
 }
 
+/* Columnas Fijas para la tabla de Reportes */
+.sticky-col {
+  position: sticky;
+  background-color: #fff; /* Necesario para que no sea transparente al scrollear */
+  z-index: 10; /* Por encima de las otras celdas */
+  border-right: 1px solid #eee; /* Separador visual */
+}
+
+/* Primera columna (Patente) pegada a la izquierda */
+.col-patente {
+  left: 0;
+  min-width: 90px;
+}
+
+/* Segunda columna (Marca) pegada después de la primera */
+/* Ajusta el 'left' según el ancho real de tu primera columna, aprox 100px */
+.col-marca {
+  left: 100px; 
+  min-width: 140px;
+  z-index: 9; /* Un poco menos que la primera si se solapan sombras */
+}
+
+/* Asegurar que los headers también sean sticky */
+th.sticky-col {
+  background-color: #f8f9fa; /* Mismo color del header general */
+  z-index: 11; /* Mayor z-index que las celdas del body */
+}
+
+/* Sombra suave para indicar que hay scroll */
+.col-marca::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -5px;
+  bottom: 0;
+  width: 5px;
+  background: linear-gradient(to right, rgba(0,0,0,0.05), transparent);
+  pointer-events: none;
+}
+
 .urgencia-badge.vencido,
 .urgencia-badge.vencida {
   color: #b91c1c;

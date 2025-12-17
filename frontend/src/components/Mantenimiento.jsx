@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../lib/api';
-import { supabase } from '../lib/supabase'; // Importamos supabase para Storage
+import { supabase } from '../lib/supabase';
 import './Mantenimiento.css';
 
-// --- HELPERS (Reusando lógica existente) ---
+// --- HELPERS ---
 const useDebounce = (value, delay) => {
     const [debouncedValue, setDebouncedValue] = useState(value);
     useEffect(() => {
@@ -30,7 +30,7 @@ const formatLocalDate = (dateString) => {
     if (!dateString) return '-';
     try {
         const date = new Date(dateString);
-        return date.toLocaleDateString('es-CL');
+        return new Date(date.getTime() + date.getTimezoneOffset() * 60000).toLocaleDateString('es-CL');
     } catch (e) { return dateString; }
 };
 
@@ -50,60 +50,41 @@ const formatCurrency = (value) => {
     } catch (e) { return String(value); }
 };
 
-// --- COMPONENTE UPLOADER REUTILIZABLE para MANTENIMIENTO ---
+// --- UPLOADER ---
 const MantFileUploader = ({ mantId, onUploadSuccess, disabled }) => {
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState(null);
 
     const handleFileChange = async (e) => {
         if (!e.target.files || e.target.files.length === 0 || !mantId) {
-             setUploadError("Debe seleccionar un archivo y la orden debe estar creada (guardada).");
+             setUploadError("Debe seleccionar un archivo y la orden debe estar creada.");
              return;
         }
-
         const file = e.target.files[0];
-
-        if (file.size > 10 * 1024 * 1024) { // 10MB Límite
+        if (file.size > 10 * 1024 * 1024) {
             setUploadError("El archivo es muy grande (máx 10MB).");
             return;
         }
-
         setIsUploading(true);
         setUploadError(null);
 
         try {
-            // 1. Sanitizar nombre y crear path (usando 'mantenimiento' como carpeta raíz)
             const fileExt = file.name.split('.').pop();
-            const fileName = file.name.substring(0, file.name.lastIndexOf('.'))
-                .toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/__+/g, '_');
+            const fileName = file.name.substring(0, file.name.lastIndexOf('.')).toLowerCase().replace(/[^a-z0-9]/g, '_');
             const safeFileName = `${fileName}_${new Date().getTime()}.${fileExt}`;
-            // IMPORTANTE: Definimos el path para que no colisione con órdenes de viaje
             const filePath = `mantenimiento/${mantId}/${safeFileName}`;
 
-            // 2. Subir a Supabase Storage (usando el bucket existente 'adjuntos_ordenes')
-            const { error: uploadError } = await supabase.storage
-                .from('adjuntos_ordenes') // Bucket de Órdenes y Mantenimiento
-                .upload(filePath, file);
-
+            const { error: uploadError } = await supabase.storage.from('adjuntos_ordenes').upload(filePath, file);
             if (uploadError) throw new Error(uploadError.message);
 
-            // 3. Guardar en Backend (Flask)
             const res = await apiFetch(`/api/mantenimiento/${mantId}/adjuntos`, {
                 method: 'POST',
-                body: {
-                    storage_path: filePath,
-                    nombre_archivo: file.name,
-                    mime_type: file.type,
-                }
+                body: { storage_path: filePath, nombre_archivo: file.name, mime_type: file.type }
             });
 
-            if (res.status === 201) {
-                onUploadSuccess(res.data); // Devolvemos el adjunto
-            } else {
-                throw new Error(res.data?.message || 'Error guardando adjunto');
-            }
+            if (res.status === 201) onUploadSuccess(res.data);
+            else throw new Error(res.data?.message || 'Error guardando adjunto');
         } catch (err) {
-            console.error(err);
             setUploadError(err.message || String(err));
         } finally {
             setIsUploading(false);
@@ -113,18 +94,10 @@ const MantFileUploader = ({ mantId, onUploadSuccess, disabled }) => {
 
     return (
         <div className="adjuntos-container">
-            {uploadError && <div className="modal-error-pro" style={{marginBottom: '1rem'}}><span>📤</span> {uploadError}</div>}
+            {uploadError && <div className="modal-error-pro"><span>📤</span> {uploadError}</div>}
             <div className="uploader-box">
-                <input
-                    type="file"
-                    id={`mant-file-upload`}
-                    onChange={handleFileChange}
-                    accept="image/*,application/pdf"
-                    disabled={isUploading || disabled}
-                />
-                <label htmlFor={`mant-file-upload`} className={`uploader-label ${disabled ? 'disabled' : ''}`}>
-                    Seleccionar archivo...
-                </label>
+                <input type="file" id={`mant-file-upload`} onChange={handleFileChange} accept="image/*,application/pdf" disabled={isUploading || disabled} />
+                <label htmlFor={`mant-file-upload`} className={`uploader-label ${disabled ? 'disabled' : ''}`}>Seleccionar archivo...</label>
                 <p className="uploader-hint">JPG, PNG o PDF (Máx 10MB)</p>
                 {isUploading && <p className="upload-progress">⏳ Subiendo archivo...</p>}
             </div>
@@ -132,23 +105,13 @@ const MantFileUploader = ({ mantId, onUploadSuccess, disabled }) => {
     );
 };
 
-// --- LISTA DE ADJUNTOS REUTILIZABLE para MANTENIMIENTO ---
+// --- ADJUNTOS LIST ---
 const MantAdjuntosList = ({ adjuntos, loading, onDelete }) => {
-
-    const getPublicUrl = (storagePath) => {
-        try {
-            const { data } = supabase.storage.from('adjuntos_ordenes').getPublicUrl(storagePath);
-            return data.publicUrl;
-        } catch (e) { return '#'; }
-    };
     const openPreview = async (adj) => {
         if (!adj) return;
-        if (adj.publicUrl) {
-            window.open(adj.publicUrl, '_blank', 'noopener,noreferrer');
-            return;
-        }
+        if (adj.publicUrl) { window.open(adj.publicUrl, '_blank', 'noopener,noreferrer'); return; }
         try {
-            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            const tokenLocal = localStorage.getItem('token');
             const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
             const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
             if (res.ok) {
@@ -156,61 +119,26 @@ const MantAdjuntosList = ({ adjuntos, loading, onDelete }) => {
                 const blobUrl = URL.createObjectURL(blob);
                 window.open(blobUrl, '_blank', 'noopener,noreferrer');
                 setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-            } else console.error('Error fetching preview ', res.status);
-        } catch (e) { console.error('Error opening preview', e); }
-    };
-    const downloadAdjunto = async (adj) => {
-        try {
-            const tokenLocal = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-            const url = `/api/adjuntos/download?path=${encodeURIComponent(adj.storage_path)}&name=${encodeURIComponent(adj.nombre_archivo || '')}`;
-            const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenLocal}` } });
-            if (res.ok) {
-                const blob = await res.blob();
-                const downloadUrl = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.download = adj.nombre_archivo || 'file';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(downloadUrl);
-            } else console.error('Error downloading adj: ', res.status);
-        } catch (e) { console.error('Error downloading adj', e); }
+            }
+        } catch (e) { console.error(e); }
     };
 
-    if (loading) {
-        return <p className="loading-adjuntos">Cargando adjuntos...</p>
-    }
-
-    if (adjuntos.length === 0) {
-        return <p className="loading-adjuntos">📂 No hay archivos adjuntos.</p>
-    }
+    if (loading) return <p className="loading-adjuntos">Cargando adjuntos...</p>;
+    if (adjuntos.length === 0) return <p className="loading-adjuntos">📂 No hay archivos adjuntos.</p>;
 
     return (
         <div className="adjuntos-list">
             {adjuntos.map(adj => (
                 <div key={adj.id} className="adjunto-item">
                     <div className="adjunto-info">
-                        <span className="adjunto-icon">
-                            {adj.mime_type?.includes('image') ? '🖼️' : '📄'}
-                        </span>
+                        <span className="adjunto-icon">{adj.mime_type?.includes('image') ? '🖼️' : '📄'}</span>
                         <span className="adjunto-name">
                             <button type="button" className="btn-link" onClick={() => openPreview(adj)}>
                                 {adj.nombre_archivo || adj.storage_path}
                             </button>
                         </span>
                     </div>
-                    <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
-                        <button type="button" className="btn btn-tertiary" onClick={() => downloadAdjunto(adj)} title="Descargar">⬇️</button>
-                        <button
-                            type="button"
-                            className="adjunto-delete-btn"
-                            title="Eliminar adjunto"
-                            onClick={() => onDelete(adj.id)}
-                        >
-                            ×
-                        </button>
-                    </div>
+                    <button type="button" className="adjunto-delete-btn" onClick={() => onDelete(adj.id)}>×</button>
                 </div>
             ))}
         </div>
@@ -218,21 +146,23 @@ const MantAdjuntosList = ({ adjuntos, loading, onDelete }) => {
 };
 
 // --- MODAL FORMULARIO ---
-
 const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento, apiError, submitting }) => {
     const [form, setForm] = useState({});
     const [activeTab, setActiveTab] = useState('programacion');
     const [vehiculosList, setVehiculosList] = useState([]);
     const [loadingLists, setLoadingLists] = useState(false);
-
-    // Estados para adjuntos
     const [adjuntos, setAdjuntos] = useState([]);
     const [loadingAdjuntos, setLoadingAdjuntos] = useState(false);
 
     const requiredFields = ['vehiculo_id', 'descripcion', 'fecha_programada'];
-    const mantIdActual = editingMantenimiento?.id; // Usamos el ID de la orden
+    const mantIdActual = editingMantenimiento?.id;
 
-    // Cargar listas (Vehículos)
+    // Helper para encontrar vehículo seleccionado y sus datos de gases
+    const selectedVehiculo = useMemo(() => 
+        vehiculosList.find(v => String(v.id) === String(form.vehiculo_id)), 
+        [vehiculosList, form.vehiculo_id]
+    );
+
     useEffect(() => {
         if (!isOpen) return;
         const fetchVehicles = async () => {
@@ -240,27 +170,21 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
             try {
                 const resVeh = await apiFetch('/api/vehiculos/?per_page=500');
                 if (resVeh.status === 200) setVehiculosList(resVeh.data.data || []);
-            } catch (e) { console.error("Error cargando vehículos", e); }
+            } catch (e) { console.error(e); }
             setLoadingLists(false);
         };
         fetchVehicles();
     }, [isOpen]);
 
-    // Función para cargar adjuntos
     const fetchAdjuntos = useCallback(async (mantId) => {
         setLoadingAdjuntos(true);
         try {
             const res = await apiFetch(`/api/mantenimiento/${mantId}/adjuntos`);
-            if (res.status === 200) {
-                setAdjuntos(res.data.data || []);
-            }
-        } catch(e) {
-            console.error("Error cargando adjuntos", e);
-        }
+            if (res.status === 200) setAdjuntos(res.data.data || []);
+        } catch(e) { console.error(e); }
         setLoadingAdjuntos(false);
     }, []);
 
-    // Inicializar formulario y adjuntos
     useEffect(() => {
         if (editingMantenimiento) {
             setForm({
@@ -274,17 +198,17 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                 km_realizacion: editingMantenimiento.km_realizacion || '',
                 costo: editingMantenimiento.costo || '',
                 observaciones: editingMantenimiento.observaciones || '',
+                renovar_gases: '',
             });
-            // Cargar adjuntos si estamos editando
             fetchAdjuntos(editingMantenimiento.id);
         } else {
             setForm({
                 vehiculo_id: '', descripcion: '', tipo_mantenimiento: 'PREVENTIVO',
                 estado: 'PENDIENTE', fecha_programada: formatDateForInput(new Date().toISOString()),
                 km_programado: '', fecha_realizacion: '', km_realizacion: '',
-                costo: '', observaciones: ''
+                costo: '', observaciones: '', renovar_gases: ''
             });
-            setAdjuntos([]); // Limpiar adjuntos si es nuevo
+            setAdjuntos([]);
         }
         setActiveTab('programacion');
     }, [editingMantenimiento, isOpen, fetchAdjuntos]);
@@ -292,63 +216,40 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
     const handleChange = (e) => {
         const { name, value, type } = e.target;
         let finalValue = value;
-
         if (type === 'number' || name.endsWith('_id')) {
             finalValue = value ? (name === 'costo' ? parseFloat(value) : parseInt(value, 10)) : '';
-        } else if (name === 'descripcion' || name === 'observaciones') {
-            finalValue = value;
-        } else if (typeof value === 'string') {
+        } else if (typeof value === 'string' && name !== 'descripcion' && name !== 'observaciones' && type !== 'date') {
             finalValue = value.toUpperCase();
         }
-
+        if (name === 'descripcion' || name === 'observaciones') finalValue = value;
         setForm({ ...form, [name]: finalValue });
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
         const payload = { ...form };
-
         Object.keys(payload).forEach(key => {
-            if (payload[key] === '' || payload[key] === undefined || payload[key] === null) {
-                payload[key] = null;
-            }
+            if (payload[key] === '' || payload[key] === undefined || payload[key] === null) payload[key] = null;
         });
-
-        if (payload.costo && payload.costo < 0) {
-            alert('El costo no puede ser negativo.');
-            return;
-        }
-
         onSave(payload, mantIdActual);
     };
 
-    // --- Handlers de Adjuntos ---
     const handleUploadSuccess = (res) => {
         setAdjuntos(prev => [res.data, ...prev]);
-        // Re-seleccionar pestaña de adjuntos si se subió con éxito
         setActiveTab('adjuntos');
     };
 
     const handleDeleteAdjunto = async (adjuntoId) => {
-        if (!window.confirm("¿Estás seguro de eliminar este archivo?")) return;
-
+        if (!window.confirm("¿Eliminar archivo?")) return;
         try {
-            // El endpoint de DELETE usa la ruta centralizada con el ID del adjunto
             const res = await apiFetch(`/api/mantenimiento/adjuntos/${adjuntoId}`, { method: 'DELETE' });
-            if (res.status === 200) {
-                setAdjuntos(adjuntos.filter(a => a.id !== adjuntoId));
-            } else {
-                throw new Error(res.data?.message || 'Error al borrar');
-            }
-        } catch (err) {
-            console.error(err);
-            alert(`Error al eliminar: ${err.message}`);
-        }
+            if (res.status === 200) setAdjuntos(adjuntos.filter(a => a.id !== adjuntoId));
+            else throw new Error(res.data?.message);
+        } catch (err) { alert(`Error: ${err.message}`); }
     };
-    // --- Fin Handlers de Adjuntos ---
 
     const isFormInvalid = requiredFields.some(field => !form[field]);
-    const canUpload = !!mantIdActual; // Solo se puede subir si la orden existe
+    const canUpload = !!mantIdActual;
 
     if (!isOpen) return null;
 
@@ -358,86 +259,67 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                 <div className="modal-header-pro">
                     <div>
                         <h3>{editingMantenimiento ? 'Editar Mantenimiento' : 'Nueva Orden de Mantenimiento'}</h3>
-                        <p className="modal-subtitle">
-                            {editingMantenimiento ? `Modificando Orden #${editingMantenimiento.id}` : 'Registra la intervención programada o correctiva'}
-                        </p>
+                        <p className="modal-subtitle">{editingMantenimiento ? `Orden #${editingMantenimiento.id}` : 'Registra la intervención'}</p>
                     </div>
-                    <button onClick={onClose} className="modal-close-pro" type="button">×</button>
+                    <button onClick={onClose} className="modal-close-pro">×</button>
                 </div>
 
                 <form onSubmit={handleSubmit}>
-                    {apiError && (
-                        <div className="modal-error-pro">
-                            <span className="error-icon-pro">⚠</span>
-                            <span>{apiError}</span>
-                        </div>
-                    )}
+                    {apiError && <div className="modal-error-pro">⚠️ {apiError}</div>}
 
                     <div className="modal-tabs">
-                        <button
-                            type="button"
-                            className={`tab-button ${activeTab === 'programacion' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('programacion')}
-                        >
-                            📅 1. Detalle y Programación
-                        </button>
-                        <button
-                            type="button"
-                            className={`tab-button ${activeTab === 'cierre' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('cierre')}
-                        >
-                            🏁 2. Ejecución y Costo
-                        </button>
-                        <button
-                            type="button"
-                            className={`tab-button ${activeTab === 'adjuntos' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('adjuntos')}
-                        >
-                            📎 3. Adjuntos ({adjuntos.length})
-                        </button>
+                        <button type="button" className={`tab-button ${activeTab === 'programacion' ? 'active' : ''}`} onClick={() => setActiveTab('programacion')}>📅 1. Detalle</button>
+                        <button type="button" className={`tab-button ${activeTab === 'cierre' ? 'active' : ''}`} onClick={() => setActiveTab('cierre')}>🏁 2. Ejecución</button>
+                        <button type="button" className={`tab-button ${activeTab === 'adjuntos' ? 'active' : ''}`} onClick={() => setActiveTab('adjuntos')}>📎 3. Adjuntos ({adjuntos.length})</button>
                     </div>
 
                     <div className="modal-body-pro">
                         {loadingLists && <div className="loading-state">Cargando...</div>}
 
-                        {/* --- Pestaña 1: Programación --- */}
                         {activeTab === 'programacion' && !loadingLists && (
                             <div className="tab-content">
-                                {/* ... (Controles de Programación y Detalle existentes) ... */}
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Detalles Básicos</h4>
                                     <div className="form-grid-2">
                                         <div className="form-group-pro">
-                                            <label>Vehículo (Placa) <span className="required-star">*</span></label>
+                                            <label>Vehículo (Placa) *</label>
                                             <select name="vehiculo_id" value={form.vehiculo_id} onChange={handleChange} required>
                                                 <option value="">Seleccionar vehículo</option>
                                                 {vehiculosList.map(v => (<option key={v.id} value={v.id}>{v.placa} - {v.marca} {v.modelo}</option>))}
                                             </select>
+                                            {selectedVehiculo && (
+                                                <div style={{marginTop: '8px', padding: '8px', background: '#f5f5f5', borderRadius: '4px', fontSize: '0.85rem'}}>
+                                                    <strong>Gases: </strong>
+                                                    {selectedVehiculo.gases_estado === 'VENCIDO' && <span style={{color:'#d32f2f', fontWeight:'bold'}}>⚠️ VENCIDO ({formatLocalDate(selectedVehiculo.fecha_vencimiento_gases)})</span>}
+                                                    {selectedVehiculo.gases_estado === 'POR_VENCER' && <span style={{color:'#f57c00', fontWeight:'bold'}}>⏱️ POR VENCER ({formatLocalDate(selectedVehiculo.fecha_vencimiento_gases)})</span>}
+                                                    {selectedVehiculo.gases_estado === 'OK' && <span style={{color:'#388e3c', fontWeight:'bold'}}>✅ OK ({formatLocalDate(selectedVehiculo.fecha_vencimiento_gases)})</span>}
+                                                    {(!selectedVehiculo.gases_estado || selectedVehiculo.gases_estado === 'SIN_DATO') && <span style={{color:'#999'}}>Sin información</span>}
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="form-group-pro">
-                                            <label>Tipo de Mantenimiento</label>
+                                            <label>Tipo</label>
                                             <select name="tipo_mantenimiento" value={form.tipo_mantenimiento} onChange={handleChange}>
                                                 <option value="PREVENTIVO">PREVENTIVO</option>
                                                 <option value="CORRECTIVO">CORRECTIVO</option>
                                             </select>
                                         </div>
                                     </div>
-                                    <div className="form-group-pro" style={{marginTop: '1.25rem'}}>
-                                        <label>Descripción del Trabajo <span className="required-star">*</span></label>
-                                        <textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows="3" className="textarea-pro" placeholder="Ej: Cambio de aceite y filtros, Revisión de 20.000 KM" required></textarea>
+                                    <div className="form-group-pro" style={{marginTop: '1rem'}}>
+                                        <label>Descripción *</label>
+                                        <textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows="3" className="textarea-pro" required placeholder="Ej: Cambio de aceite..."></textarea>
                                     </div>
                                 </div>
-
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Planificación</h4>
                                     <div className="form-grid-3">
                                         <div className="form-group-pro">
-                                            <label>Fecha Programada <span className="required-star">*</span></label>
+                                            <label>Fecha Programada *</label>
                                             <input name="fecha_programada" type="date" value={form.fecha_programada} onChange={handleChange} required />
                                         </div>
                                         <div className="form-group-pro">
                                             <label>KM Programado</label>
-                                            <input name="km_programado" type="number" value={form.km_programado} onChange={handleChange} placeholder="Ej: 80000" min="0" />
+                                            <input name="km_programado" type="number" value={form.km_programado} onChange={handleChange} />
                                         </div>
                                         <div className="form-group-pro">
                                             <label>Estado</label>
@@ -454,10 +336,8 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                             </div>
                         )}
 
-                        {/* --- Pestaña 2: Cierre --- */}
                         {activeTab === 'cierre' && !loadingLists && (
                             <div className="tab-content">
-                                {/* ... (Controles de Ejecución y Costo existentes) ... */}
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Registro de Ejecución</h4>
                                     <div className="form-grid-2">
@@ -467,63 +347,46 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                                         </div>
                                         <div className="form-group-pro">
                                             <label>KM Realización</label>
-                                            <input name="km_realizacion" type="number" value={form.km_realizacion} onChange={handleChange} placeholder="Ej: 80050" min="0" />
+                                            <input name="km_realizacion" type="number" value={form.km_realizacion} onChange={handleChange} />
                                         </div>
                                     </div>
+                                    <div className="form-group-pro" style={{marginTop: '15px', backgroundColor: '#e8f5e9', padding: '12px', borderRadius: '6px', border: '1px solid #c8e6c9'}}>
+                                        <label style={{color: '#2e7d32', fontWeight: 'bold', display: 'block', marginBottom: '5px'}}>📄 Actualizar Vencimiento Gases (Opcional)</label>
+                                        <input name="renovar_gases" type="date" value={form.renovar_gases} onChange={handleChange} style={{border: '1px solid #a5d6a7'}} />
+                                        <small style={{color: '#555', display: 'block', marginTop: '4px'}}>Ingresa la <strong>NUEVA</strong> fecha solo si se renovó el certificado.</small>
+                                    </div>
                                 </div>
-
                                 <div className="form-section-pro">
                                     <h4 className="section-title-pro">Costos y Observaciones</h4>
                                     <div className="form-grid-2">
                                         <div className="form-group-pro">
                                             <label>Costo Total (CLP)</label>
-                                            <input name="costo" type="number" value={form.costo} onChange={handleChange} placeholder="Ej: 150000" min="0" step="1" />
+                                            <input name="costo" type="number" value={form.costo} onChange={handleChange} step="1" />
                                         </div>
                                     </div>
-                                    <div className="form-group-pro" style={{marginTop: '1.25rem'}}>
-                                        <label>Observaciones / Detalle</label>
-                                        <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="4" className="textarea-pro" placeholder="Detalle de repuestos, proveedor, o notas de la ejecución."></textarea>
+                                    <div className="form-group-pro" style={{marginTop: '1rem'}}>
+                                        <label>Observaciones</label>
+                                        <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="4" className="textarea-pro"></textarea>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* --- Pestaña 3: Adjuntos (¡NUEVO!) --- */}
                         {activeTab === 'adjuntos' && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Documentos, Facturas o Fotos del Servicio</h4>
-
-                                    {!canUpload && (
-                                        <div className="modal-error-pro" style={{marginBottom: '1rem'}}>
-                                            <span>ℹ️</span>
-                                            <span>Para subir adjuntos, primero debe **crear y guardar** la orden de mantenimiento.</span>
-                                        </div>
-                                    )}
-
-                                    <MantFileUploader
-                                        mantId={mantIdActual}
-                                        onUploadSuccess={handleUploadSuccess}
-                                        disabled={!canUpload}
-                                    />
-
-                                    <MantAdjuntosList
-                                        adjuntos={adjuntos}
-                                        loading={loadingAdjuntos}
-                                        onDelete={handleDeleteAdjunto}
-                                    />
+                                    <h4 className="section-title-pro">Archivos Adjuntos</h4>
+                                    {!canUpload && <div className="modal-error-pro">ℹ️ Guarda la orden primero para subir archivos.</div>}
+                                    <MantFileUploader mantId={mantIdActual} onUploadSuccess={handleUploadSuccess} disabled={!canUpload} />
+                                    <MantAdjuntosList adjuntos={adjuntos} loading={loadingAdjuntos} onDelete={handleDeleteAdjunto} />
                                 </div>
                             </div>
                         )}
                     </div>
 
                     <div className="modal-footer-pro">
-                        <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>
-                            Cancelar
-                        </button>
-                        <button type="submit" disabled={isFormInvalid || submitting || loadingLists} className="btn btn-primary-pro">
-                            {submitting ? '⏳ Guardando...' : (editingMantenimiento ? '💾 Actualizar' : '➕ Crear Orden')}
-                        </button>
+                        <button type="button" onClick={onClose} className="btn btn-secondary-pro" disabled={submitting}>Cancelar</button>
+                        <button type="submit" disabled={isFormInvalid || submitting || loadingLists} className="btn btn-primary-pro">{submitting ? 'Guardando...' : (editingMantenimiento ? 'Guardar Cambios' : 'Crear Orden')}</button>
                     </div>
                 </form>
             </div>
@@ -531,37 +394,23 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
     );
 };
 
-// Reusamos la ConfirmationModal de otros módulos
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, submitting }) => {
     if (!isOpen) return null;
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content modal-small" onClick={(e) => e.stopPropagation()}>
-                <div className="modal-header-pro">
-                    <h3>⚠️ {title}</h3>
-                </div>
-                <div className="modal-body-pro">
-                    <p className="confirmation-message">{message}</p>
-                </div>
+                <div className="modal-header-pro"><h3>⚠️ {title}</h3></div>
+                <div className="modal-body-pro"><p className="confirmation-message">{message}</p></div>
                 <div className="modal-footer-pro">
-                    <button onClick={onClose} disabled={submitting} className="btn btn-secondary-pro">
-                        Cancelar
-                    </button>
-                    <button onClick={onConfirm} disabled={submitting} className="btn btn-danger-pro">
-                        {submitting ? 'Procesando...' : 'Confirmar'}
-                    </button>
+                    <button onClick={onClose} disabled={submitting} className="btn btn-secondary-pro">Cancelar</button>
+                    <button onClick={onConfirm} disabled={submitting} className="btn btn-danger-pro">{submitting ? 'Procesando...' : 'Confirmar'}</button>
                 </div>
             </div>
         </div>
     );
 };
 
-
-// --- COMPONENTE PRINCIPAL MANTENIMIENTO ---
-
 function Mantenimiento({ user, token }) {
-    console.log('🔧 Mantenimiento component rendered', { user, token: token ? 'present' : 'missing' });
-
     const [mantenimientos, setMantenimientos] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -581,48 +430,22 @@ function Mantenimiento({ user, token }) {
     const isAdmin = useMemo(() => (user?.cargo || '').toLowerCase() === 'administrador', [user?.cargo]);
     const debouncedSearch = useDebounce(searchQuery, 500);
 
-    // Función para verificar si el token es válido
-    const verifyToken = useCallback(async () => {
-        try {
-            console.log('🔧 Verifying token...');
-            const res = await apiFetch('/auth/me');
-            if (res && res.status === 200) {
-                console.log('🔧 Token is valid');
-                return true;
-            } else {
-                console.log('🔧 Token is invalid');
-                return false;
-            }
-        } catch (err) {
-            console.error('🔧 Error verifying token:', err);
-            return false;
+    useEffect(() => {
+        if (token) {
+            const fetchList = async () => {
+                try {
+                    const res = await apiFetch('/api/vehiculos/?per_page=500');
+                    if (res.status === 200) setVehiculosFiltroList(res.data.data || []);
+                } catch (e) { console.error(e); }
+            };
+            fetchList();
         }
-    }, []);
-
-    const fetchVehiculosList = useCallback(async () => {
-        try {
-            // Obtenemos una lista simple de vehículos para el filtro
-            const res = await apiFetch('/api/vehiculos/?per_page=500');
-            if (res.status === 200) {
-                setVehiculosFiltroList(res.data.data || []);
-            }
-        } catch (e) {
-            console.error("Error cargando lista de vehículos para filtro", e);
-        }
-    }, []);
+    }, [token]);
 
     const fetchMantenimientos = useCallback(async () => {
-        console.log('🔧 fetchMantenimientos called');
         setLoading(true);
         setError(null);
-        
-        // Verificar que tengamos token antes de hacer la petición
-        if (!token) {
-            console.log('🔧 No token available, skipping');
-            setError('No has iniciado sesión');
-            setLoading(false);
-            return;
-        }
+        if (!token) { setLoading(false); return; }
         
         const params = new URLSearchParams({ page, per_page: meta.per_page });
         if (debouncedSearch) params.append('search', debouncedSearch);
@@ -630,70 +453,27 @@ function Mantenimiento({ user, token }) {
         if (filtroVehiculoId) params.append('vehiculo_id', filtroVehiculoId);
 
         try {
-            console.log('🔧 Making API call to:', `/api/mantenimiento/?${params.toString()}`);
             const res = await apiFetch(`/api/mantenimiento/?${params.toString()}`);
-            console.log('🔧 API response:', res);
-            
             if (res && res.status === 200) {
                 setMantenimientos(res.data.data || []);
                 setMeta(res.data.meta || { page: 1, per_page: 20, total: 0, pages: 1 });
             } else if (res && res.status === 401) {
-                console.log('🔧 Token inválido, redirigiendo al login');
-                setError('Sesión expirada. Redirigiendo al login...');
-                // Dar tiempo para que el usuario vea el mensaje antes de redirigir
-                setTimeout(() => {
-                    window.location.replace('/');
-                }, 2000);
+                setError('Sesión expirada.');
+                setTimeout(() => window.location.replace('/'), 2000);
             } else {
-                setError(res.data?.message || `Error ${res.status}: ${res.data?.message || 'Error desconocido'}`);
+                setError(res.data?.message || 'Error desconocido');
             }
-        } catch (err) {
-            console.error('🔧 Error in fetchMantenimientos:', err);
-            setError('Error de conexión - verifica tu conexión a internet');
-        } finally {
-            setLoading(false);
-        }
+        } catch (err) { setError('Error de conexión'); } 
+        finally { setLoading(false); }
     }, [page, debouncedSearch, filtroEstado, filtroVehiculoId, meta.per_page, token]);
 
-    useEffect(() => {
-        console.log('🔧 useEffect triggered', { token: !!token });
-        if (token) {
-            // Primero verificar que el token sea válido
-            verifyToken().then(isValid => {
-                if (isValid) {
-                    fetchMantenimientos();
-                    fetchVehiculosList();
-                } else {
-                    console.log('🔧 Token inválido, redirigiendo');
-                    setError('Sesión expirada. Redirigiendo al login...');
-                    setTimeout(() => {
-                        window.location.replace('/');
-                    }, 2000);
-                }
-            });
-        } else {
-            console.log('🔧 No token available, skipping API calls');
-        }
-    }, [token, verifyToken, fetchMantenimientos, fetchVehiculosList]);
-
-    // Timeout para evitar carga infinita
-    useEffect(() => {
-        if (loading) {
-            const timeout = setTimeout(() => {
-                console.warn('🔧 Loading timeout reached');
-                setLoading(false);
-                setError('Tiempo de espera agotado. Verifica tu conexión.');
-            }, 5000); // 5 segundos
-            return () => clearTimeout(timeout);
-        }
-    }, [loading]);
+    useEffect(() => { if (token) fetchMantenimientos(); }, [token, fetchMantenimientos]);
 
     const handleFormSubmit = async (formData, mantId) => {
         setSubmitting(true);
         setFormError(null);
         const url = mantId ? `/api/mantenimiento/${mantId}` : '/api/mantenimiento/';
         const method = mantId ? 'PUT' : 'POST';
-
         try {
             const res = await apiFetch(url, { method, body: formData });
             if (res && (res.status === 200 || res.status === 201)) {
@@ -702,11 +482,8 @@ function Mantenimiento({ user, token }) {
             } else {
                 setFormError(res.data?.message || 'Error al guardar');
             }
-        } catch (err) {
-            setFormError('Error de conexión');
-        } finally {
-            setSubmitting(false);
-        }
+        } catch (err) { setFormError('Error de conexión'); } 
+        finally { setSubmitting(false); }
     };
 
     const handleConfirmDelete = async () => {
@@ -717,94 +494,28 @@ function Mantenimiento({ user, token }) {
             if (res && res.status === 200) {
                 setDeletingMantenimiento(null);
                 fetchMantenimientos();
-            } else {
-                setError(res.data?.message || 'No se pudo eliminar');
-            }
-        } catch (err) {
-            setError('Error de conexión');
-        } finally {
-            setSubmitting(false);
-        }
+            } else { setError(res.data?.message || 'No se pudo eliminar'); }
+        } catch (err) { setError('Error de conexión'); } 
+        finally { setSubmitting(false); }
     };
 
-    const getEstadoBadge = (estado) => {
-        const estadoClass = {
-            'PENDIENTE': 'badge-estado-pendiente',
-            'PROGRAMADO': 'badge-estado-programado',
-            'EN_TALLER': 'badge-estado-en_taller',
-            'FINALIZADO': 'badge-estado-finalizado',
-            'CANCELADO': 'badge-estado-cancelado'
-        };
-        return `badge-mant-estado ${estadoClass[estado] || ''}`;
-    };
+    const getEstadoBadge = (estado) => `badge-mant-estado badge-estado-${estado?.toLowerCase()}`;
+    const getTipoBadge = (tipo) => `badge-mant-tipo badge-tipo-${tipo?.toLowerCase()}`;
 
-    const getTipoBadge = (tipo) => {
-        const tipoClass = {
-            'PREVENTIVO': 'badge-tipo-preventivo',
-            'CORRECTIVO': 'badge-tipo-correctivo',
-        };
-        return `badge-mant-tipo ${tipoClass[tipo] || ''}`;
-    };
-
-    // Función para manejar doble clic en fila
-    const handleRowDoubleClick = (mantenimiento) => {
-        // No permitir editar órdenes finalizadas
-        if (mantenimiento.estado === 'FINALIZADO') {
-            console.log('🔒 Orden finalizada, no se puede editar');
-            return;
-        }
-        
-        // Verificar permisos
-        if (!canWrite) {
-            console.log('🔒 Usuario sin permisos para editar');
-            return;
-        }
-        
-        console.log('🔧 Editando orden:', mantenimiento.id);
-        setEditingMantenimiento(mantenimiento);
-        setFormError(null);
-        setShowModal(true);
-    };
-
-    // Función para determinar si una fila es editable
-    const isRowEditable = (mantenimiento) => {
-        return canWrite && mantenimiento.estado !== 'FINALIZADO';
-    };
-
-    if (!token) {
-        return (
-            <div className="mantenimiento-container">
-                <div className="loading-state">Cargando módulo de mantenimiento...</div>
-            </div>
-        );
-    }
+    if (!token) return <div className="loading-state">Cargando...</div>;
 
     return (
         <div className="mantenimiento-container">
             <div className="mantenimiento-header">
-                <div>
-                    <h2>Gestión de Mantenimiento</h2>
-                    <p className="header-subtitle">Control de servicios programados y reparaciones de la flota</p>
-                </div>
-                {canWrite && (
-                    <button onClick={() => { setEditingMantenimiento(null); setFormError(null); setShowModal(true); }} className="btn btn-primary">
-                        ➕ Nueva Orden
-                    </button>
-                )}
+                <div><h2>Gestión de Mantenimiento</h2><p className="header-subtitle">Control de servicios</p></div>
+                {canWrite && <button onClick={() => { setEditingMantenimiento(null); setFormError(null); setShowModal(true); }} className="btn btn-primary">➕ Nueva Orden</button>}
             </div>
 
             <div className="filtros-container">
                 <div className="search-wrapper-pro">
                     <span className="search-icon-pro">🔍</span>
-                    <input
-                        type="search"
-                        placeholder="Buscar por descripción u observaciones..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="search-input-pro"
-                    />
+                    <input type="search" placeholder="Buscar por descripción o patente..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input-pro" />
                 </div>
-
                 <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="filtro-select">
                     <option value="">📊 Todos los Estados</option>
                     <option value="PENDIENTE">PENDIENTE</option>
@@ -813,96 +524,41 @@ function Mantenimiento({ user, token }) {
                     <option value="FINALIZADO">FINALIZADO</option>
                     <option value="CANCELADO">CANCELADO</option>
                 </select>
-
                 <select value={filtroVehiculoId} onChange={(e) => setFiltroVehiculoId(e.target.value)} className="filtro-select">
                     <option value="">🚗 Todos los Vehículos</option>
-                    {vehiculosFiltroList.map(v => (
-                        <option key={v.id} value={v.id}>
-                            {v.placa} - {v.marca && v.modelo && v.modelo !== 'Luz' ? `${v.marca} ${v.modelo}` : v.modelo === 'Luz' ? 'Modelo pendiente' : v.modelo || 'Sin modelo'}
-                        </option>
-                    ))}
+                    {vehiculosFiltroList.map(v => <option key={v.id} value={v.id}>{v.placa} - {v.modelo || 'Sin modelo'}</option>)}
                 </select>
             </div>
 
             {error && <div className="alert-error-pro">⚠️ {error}</div>}
 
-            <div className="table-info-message">
-                💡 <strong>Edición rápida:</strong> Haz doble clic en cualquier fila editable para modificarla. 
-                Las órdenes finalizadas no se pueden editar.
-            </div>
-
             <div className="table-container">
-                {loading && mantenimientos.length === 0 ? (
-                    <div className="loading-state">Cargando órdenes de mantenimiento...</div>
-                ) : (
+                {loading ? <div className="loading-state">Cargando...</div> : (
                     <table className="mantenimiento-table">
                         <thead>
                             <tr>
-                                <th>ID</th>
-                                <th>Estado</th>
-                                <th>Vehículo</th>
-                                <th>Tipo</th>
-                                <th>Descripción</th>
-                                <th>F. Prog.</th>
-                                <th>KM Prog.</th>
-                                <th>F. Realiz.</th>
-                                <th>Costo</th>
+                                <th>ID</th><th>Estado</th><th>Vehículo</th><th>Tipo</th><th>Descripción</th>
+                                <th>F. Prog.</th><th>KM Prog.</th><th>F. Realiz.</th><th>Costo</th>
                                 {(canWrite || isAdmin) && <th>Acciones</th>}
                             </tr>
                         </thead>
                         <tbody>
                             {mantenimientos.map(m => (
-                                <tr 
-                                    key={m.id} 
-                                    onDoubleClick={() => handleRowDoubleClick(m)}
-                                    className={isRowEditable(m) ? 'row-editable' : 'row-readonly'}
-                                    title={isRowEditable(m) ? '📝 Doble clic para editar esta orden' : '🔒 Orden finalizada - no editable'}
-                                >
-                                    <td className="font-bold">
-                                        #{m.id}
-                                        {isRowEditable(m) && <span className="edit-indicator" title="Editable"> ✏️</span>}
-                                        {m.estado === 'FINALIZADO' && <span className="lock-indicator" title="Finalizada"> 🔒</span>}
-                                    </td>
+                                <tr key={m.id} onDoubleClick={() => { if(canWrite && m.estado!=='FINALIZADO') { setEditingMantenimiento(m); setShowModal(true); } }} className={canWrite && m.estado!=='FINALIZADO' ? 'row-editable' : ''}>
+                                    <td className="font-bold">#{m.id}</td>
                                     <td><span className={getEstadoBadge(m.estado)}>{m.estado?.replace('_', ' ')}</span></td>
-                                    <td>
-                                        <span className="badge-mant-placa">{m.vehiculo?.placa || 'N/A'}</span>
-                                        <br />
-                                        <small>
-                                            {m.vehiculo?.marca && m.vehiculo?.modelo && m.vehiculo.modelo !== 'Luz'
-                                                ? `${m.vehiculo.marca} ${m.vehiculo.modelo}`.trim()
-                                                : m.vehiculo?.modelo === 'Luz' 
-                                                    ? 'Modelo pendiente'
-                                                    : m.vehiculo?.modelo || 'Sin modelo'
-                                            }
-                                        </small>
-                                    </td>
+                                    <td><span className="badge-mant-placa">{m.vehiculo?.placa || '-'}</span><br/><small>{m.vehiculo?.marca} {m.vehiculo?.modelo}</small></td>
                                     <td><span className={getTipoBadge(m.tipo_mantenimiento)}>{m.tipo_mantenimiento}</span></td>
-                                    <td>{m.descripcion}</td>
+                                    <td style={{ maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={m.descripcion}>{m.descripcion}</td>
                                     <td>{formatLocalDate(m.fecha_programada)}</td>
                                     <td>{m.km_programado || '-'}</td>
                                     <td>{formatLocalDate(m.fecha_realizacion) || '-'}</td>
-                                    <td>{formatCurrency(m.costo) || '-'}</td>
+                                    <td>{formatCurrency(m.costo)}</td>
                                     {(canWrite || isAdmin) && (
                                         <td>
                                             <div className="action-buttons-pro">
-                                                {canWrite && m.estado !== 'FINALIZADO' && (
-                                                    <button
-                                                        onClick={() => { setEditingMantenimiento(m); setFormError(null); setShowModal(true); }}
-                                                        className="btn-icon-pro btn-edit-pro"
-                                                        title="Editar"
-                                                    >
-                                                        ✏️
-                                                    </button>
-                                                )}
-                                                {isAdmin && (
-                                                    <button
-                                                        onClick={() => setDeletingMantenimiento(m)}
-                                                        className="btn-icon-pro btn-delete-pro"
-                                                        title="Eliminar (Soft-delete)"
-                                                    >
-                                                        🗑️
-                                                    </button>
-                                                )}
+                                                {canWrite && m.estado !== 'FINALIZADO' && <button onClick={() => { setEditingMantenimiento(m); setFormError(null); setShowModal(true); }} className="btn-icon-pro btn-edit-pro">✏️</button>}
+                                                {isAdmin && <button onClick={() => setDeletingMantenimiento(m)} className="btn-icon-pro btn-delete-pro">🗑️</button>}
                                             </div>
                                         </td>
                                     )}
@@ -911,32 +567,21 @@ function Mantenimiento({ user, token }) {
                         </tbody>
                     </table>
                 )}
-                {mantenimientos.length === 0 && !loading && (
-                    <div className="empty-state-pro">
-                        <span className="empty-icon-pro">🛠️</span>
-                        <p>No se encontraron órdenes de mantenimiento</p>
-                    </div>
-                )}
+                {mantenimientos.length === 0 && !loading && <div className="empty-state-pro"><p>No hay registros</p></div>}
             </div>
 
-            <Pagination meta={meta} onPageChange={(newPage) => setPage(newPage)} />
+            <Pagination meta={meta} onPageChange={setPage} />
 
-            <MantenimientoFormModal
-                isOpen={showModal}
-                onClose={() => setShowModal(false)}
-                onSave={handleFormSubmit}
-                editingMantenimiento={editingMantenimiento}
-                apiError={formError}
-                submitting={submitting}
+            <MantenimientoFormModal 
+                isOpen={showModal} onClose={() => setShowModal(false)} 
+                onSave={handleFormSubmit} editingMantenimiento={editingMantenimiento} 
+                apiError={formError} submitting={submitting} 
             />
 
-            <ConfirmationModal
-                isOpen={!!deletingMantenimiento}
-                onClose={() => setDeletingMantenimiento(null)}
-                onConfirm={handleConfirmDelete}
-                title="Confirmar Eliminación"
-                message={`¿Estás seguro de eliminar la orden de mantenimiento #${deletingMantenimiento?.id}? Se marcará como eliminada (soft-delete).`}
-                submitting={submitting}
+            <ConfirmationModal 
+                isOpen={!!deletingMantenimiento} onClose={() => setDeletingMantenimiento(null)} 
+                onConfirm={handleConfirmDelete} title="Eliminar Orden" 
+                message={`¿Eliminar orden #${deletingMantenimiento?.id}?`} submitting={submitting} 
             />
         </div>
     );

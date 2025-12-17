@@ -197,13 +197,42 @@ def list_vehiculos():
         v['mant_proxima_km'] = km_proxima
         v['mant_restante_km'] = restante
         
-        # Estado de Alerta
+        # Estado de Alerta (mantenimiento por km)
         if restante < 0:
             v['mant_estado'] = 'VENCIDO'
         elif restante <= 700:
             v['mant_estado'] = 'POR_VENCER'
         else:
             v['mant_estado'] = 'OK'
+
+        # --- NUEVO: CÁLCULO ALERTA GASES ---
+        v['gases_estado'] = 'SIN_DATO'
+        fecha_gases = v.get('fecha_vencimiento_gases')
+        tipo_comb = v.get('tipo_combustible')
+
+        if fecha_gases:
+            try:
+                hoy = datetime.now().date()
+                fg = datetime.strptime(fecha_gases, '%Y-%m-%d').date()
+                dias_restantes = (fg - hoy).days
+                
+                v['gases_dias'] = dias_restantes
+
+                if dias_restantes < 0:
+                    v['gases_estado'] = 'VENCIDO'
+                else:
+                    # LÓGICA DIFERENCIADA POR COMBUSTIBLE
+                    # DIESEL: Avisar 30 días antes (más crítico)
+                    # OTROS: Avisar 15 días antes
+                    umbral_alerta = 30 if tipo_comb == 'DIESEL' else 15
+                    
+                    if dias_restantes <= umbral_alerta:
+                        v['gases_estado'] = 'POR_VENCER'
+                    else:
+                        v['gases_estado'] = 'OK'
+            except:
+                pass
+        # -----------------------------------
 
     # Obtener total para paginación (Puede ser aproximado para velocidad, o count exacto)
     try:
@@ -319,6 +348,8 @@ def create_vehiculo():
         'numero_chasis': payload.get('numero_chasis'),
         'observaciones': payload.get('observaciones'),
         'km_intervalo_mantencion': _safe_int(payload.get('km_intervalo_mantencion')),
+        'tipo_combustible': payload.get('tipo_combustible'),
+        'fecha_vencimiento_gases': _safe_date(payload.get('fecha_vencimiento_gases')),
         'metadata': payload.get('metadata') or {}
     }
 
@@ -377,6 +408,12 @@ def update_vehiculo(veh_id):
 
     if 'km_intervalo_mantencion' in payload:
         updates['km_intervalo_mantencion'] = _safe_int(payload['km_intervalo_mantencion'])
+
+    # --- AGREGAR NUEVOS CAMPOS PARA COMBUSTIBLE/GASES ---
+    if 'tipo_combustible' in payload:
+        updates['tipo_combustible'] = payload['tipo_combustible']
+    if 'fecha_vencimiento_gases' in payload:
+        updates['fecha_vencimiento_gases'] = _safe_date(payload['fecha_vencimiento_gases'])
 
     if not updates:
         return jsonify({'message': 'No se proporcionaron campos válidos para actualizar.'}), 400
