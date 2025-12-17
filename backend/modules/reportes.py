@@ -438,6 +438,7 @@ def get_analisis_vehiculos():
     - Métricas de consumo de combustible
     - Estado de documentos obligatorios
     - Alertas de vencimiento
+    - Mantenimientos pendientes (Costo y Detalle) [NUEVO]
     """
     try:
         supabase = current_app.config.get('SUPABASE')
@@ -445,9 +446,6 @@ def get_analisis_vehiculos():
             return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
 
         # 1. Obtener todos los vehículos activos
-        # PostgREST/select does not accept SQL-style aliases ("as patente").
-        # Seleccionamos la columna original `placa` y la mapeamos a `patente` en Python.
-        # Nota: la tabla flota_vehiculos no tiene columna 'estado', solo 'deleted_at' para soft-delete.
         vehiculos_res = supabase.table('flota_vehiculos').select(
             'id, placa, marca, modelo, ano, tipo'
         ).is_('deleted_at', None).order('placa').execute()
@@ -467,22 +465,26 @@ def get_analisis_vehiculos():
         ).is_('deleted_at', None).execute()
         
         documentos = documentos_res.data or []
+
+        # 4. [NUEVO] Obtener mantenimientos pendientes/programados/en taller
+        mantenimientos_res = supabase.table('flota_mantenimientos').select(
+            'vehiculo_id, costo, descripcion, tipo_mantenimiento'
+        ).in_('estado', ['PROGRAMADO', 'PENDIENTE', 'EN_TALLER']).is_('deleted_at', None).execute()
+
+        mantenimientos = mantenimientos_res.data or []
         
-        # 4. Procesar datos por vehículo
+        # 5. Procesar datos por vehículo
         hoy = datetime.now().date()
         resultado = []
         
         for vehiculo in vehiculos:
             vehiculo_id = vehiculo['id']
             
-            # Filtrar cargas de este vehículo
+            # --- LÓGICA COMBUSTIBLE ---
             cargas_vehiculo = [c for c in cargas if c.get('vehiculo_id') == vehiculo_id]
             
-            # Calcular métricas de combustible
             if len(cargas_vehiculo) >= 2:
-                # Ordenar por kilometraje
                 cargas_ordenadas = sorted(cargas_vehiculo, key=lambda x: x.get('kilometraje', 0))
-                
                 km_min = cargas_ordenadas[0].get('kilometraje', 0) or 0
                 km_max = cargas_ordenadas[-1].get('kilometraje', 0) or 0
                 km_recorridos = (km_max - km_min) if (km_max and km_min) else 0
@@ -490,7 +492,6 @@ def get_analisis_vehiculos():
                 total_litros = sum(float(c.get('litros_cargados') or 0) for c in cargas_vehiculo)
                 total_costo = sum(float(c.get('costo_total') or 0) for c in cargas_vehiculo)
                 
-                # Calcular promedios
                 if km_recorridos > 0:
                     promedio_l_km = round(total_litros / km_recorridos, 2)
                     costo_por_km = round(total_costo / km_recorridos, 0)
@@ -505,17 +506,31 @@ def get_analisis_vehiculos():
                 total_costo = 0
                 ultimo_km = 0
             
-            # Calcular total gastado último mes
             hace_30_dias = (datetime.now() - timedelta(days=30)).isoformat()
             cargas_mes = [c for c in cargas_vehiculo 
                          if c.get('fecha_carga', '') and c.get('fecha_carga') >= hace_30_dias]
             total_mes = sum(float(c.get('costo_total') or 0) for c in cargas_mes)
+
+            # --- [NUEVO] LÓGICA MANTENIMIENTOS PENDIENTES ---
+            mants_vehiculo = [m for m in mantenimientos if m.get('vehiculo_id') == vehiculo_id]
             
-            # Procesar documentos
+            # Sumar costos (validando que no sean None)
+            costo_mant_pendiente = sum(float(m.get('costo') or 0) for m in mants_vehiculo)
+            
+            # Concatenar descripciones
+            # Formato: "TIPO: Descripcion | TIPO: Descripcion"
+            descripciones = []
+            for m in mants_vehiculo:
+                tipo = m.get('tipo_mantenimiento') or 'MANT'
+                desc = m.get('descripcion') or ''
+                if desc:
+                    descripciones.append(f"{tipo}: {desc}")
+            
+            detalle_mant_pendiente = " | ".join(descripciones) if descripciones else "-"
+            
+            # --- LÓGICA DOCUMENTOS ---
             docs_vehiculo = [d for d in documentos if d.get('vehiculo_id') == vehiculo_id]
             
-            # Tipos de documentos obligatorios
-            # Normalizamos a claves técnicas para facilitar la asignación desde varios formatos
             tipos_docs = {
                 'permiso_circulacion': None,
                 'revision_tecnica': None,
@@ -524,10 +539,8 @@ def get_analisis_vehiculos():
             }
             
             import re
-
             def _normalize_tipo(t):
                 if not t: return ''
-                # pasar a minúsculas y eliminar espacios/guiones/subrayados y caracteres especiales
                 s = str(t).strip().lower()
                 s = re.sub(r"[\s_\-]+", '', s)
                 s = re.sub(r"[^a-z0-9]+", '', s)
@@ -541,7 +554,6 @@ def get_analisis_vehiculos():
                 if fecha_venc:
                     try:
                         fecha_venc_date = datetime.fromisoformat(fecha_venc.replace('Z', ''))
-                        # si la fecha incluye hora, obtener date()
                         if hasattr(fecha_venc_date, 'date'):
                             fecha_venc_date = fecha_venc_date.date()
                         dias_restantes = (fecha_venc_date - hoy).days
@@ -552,18 +564,14 @@ def get_analisis_vehiculos():
                                      'POR_VENCER' if dias_restantes > 0 else 'VENCIDO'
                         }
 
-                        # Mapeo flexible para distintos formatos de tipo_documento
-                        # Valores esperados en UI/DB: 'PERMISO_CIRCULACION', 'REVISION_TECNICA', 'SEGURO_OBLIGATORIO', 'SOAP', etc.
                         if tipo_norm in ('permisocirculacion', 'permisodecirculacion', 'permisocirc', 'permiso'):
                             tipos_docs['permiso_circulacion'] = doc_obj
                         elif tipo_norm in ('revisiontecnica', 'revtecnica', 'revistatecnica', 'revisióntécnica', 'revisióntecnica', 'revisión'):
                             tipos_docs['revision_tecnica'] = doc_obj
                         elif tipo_norm in ('soap', 'seguroobligatorio', 'seguroobligatoriosoap', 'seguro'):
-                            # A veces el tipo puede ser 'SOAP' o 'SEGURO_OBLIGATORIO' en distintas variantes; asignar a ambos campos
                             tipos_docs['soap'] = doc_obj
                             tipos_docs['seguro_obligatorio'] = doc_obj
                         else:
-                            # Soporte para etiquetas en texto libre con palabras clave
                             if 'permiso' in tipo_norm:
                                 tipos_docs['permiso_circulacion'] = doc_obj
                             elif 'revis' in tipo_norm or 'itv' in tipo_norm or 'vtv' in tipo_norm:
@@ -571,15 +579,12 @@ def get_analisis_vehiculos():
                             elif 'seguro' in tipo_norm or 'soap' in tipo_norm:
                                 tipos_docs['soap'] = doc_obj
                                 tipos_docs['seguro_obligatorio'] = doc_obj
-                            # en cualquier otro caso no hacemos nada (otros tipos)
                     except Exception:
-                        # ignorar doc con formato incorrecto
                         continue
             
-            # Agregar resultado
+            # Agregar resultado final
             resultado.append({
                 'id': vehiculo_id,
-                # `placa` es la columna real en la tabla; exponerla como `patente` en la respuesta
                 'patente': vehiculo.get('placa'),
                 'marca': vehiculo.get('marca'),
                 'modelo': vehiculo.get('modelo'),
@@ -589,6 +594,10 @@ def get_analisis_vehiculos():
                 'costo_por_km': costo_por_km,
                 'total_gastado_mes': round(total_mes, 0),
                 'ultimo_km': ultimo_km,
+                # NUEVOS CAMPOS:
+                'costo_mant_pendiente': costo_mant_pendiente,
+                'detalle_mant_pendiente': detalle_mant_pendiente,
+                # --------------
                 'permiso_circulacion': tipos_docs.get('permiso_circulacion'),
                 'revision_tecnica': tipos_docs.get('revision_tecnica'),
                 'soap': tipos_docs.get('soap'),
