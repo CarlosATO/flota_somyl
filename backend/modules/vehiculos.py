@@ -76,7 +76,8 @@ def list_vehiculos():
     start = (page - 1) * per_page
     end = start + per_page - 1
 
-    query = supabase.table('flota_vehiculos').select('*')
+    # Asegurar que la columna 'km_intervalo_mantencion' esté incluida en el select
+    query = supabase.table('flota_vehiculos').select('*, km_intervalo_mantencion')
     
     if q:
         like_q = f'%{q}%'
@@ -206,6 +207,7 @@ def create_vehiculo():
         'capacidad_kg': capacidad_kg_val,
         'numero_chasis': payload.get('numero_chasis'),
         'observaciones': payload.get('observaciones'),
+        'km_intervalo_mantencion': _safe_int(payload.get('km_intervalo_mantencion')),
         'metadata': payload.get('metadata') or {}
     }
 
@@ -261,6 +263,9 @@ def update_vehiculo(veh_id):
         updates['capacidad_pasajeros'] = _safe_int(payload['capacidad_pasajeros'])
     if 'capacidad_kg' in payload:
         updates['capacidad_kg'] = _safe_int(payload['capacidad_kg'])
+
+    if 'km_intervalo_mantencion' in payload:
+        updates['km_intervalo_mantencion'] = _safe_int(payload['km_intervalo_mantencion'])
 
     if not updates:
         return jsonify({'message': 'No se proporcionaron campos válidos para actualizar.'}), 400

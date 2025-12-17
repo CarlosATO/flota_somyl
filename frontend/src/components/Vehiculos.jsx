@@ -38,6 +38,22 @@ const formatDateForInput = (dateString) => {
     } catch (e) { return ''; }
 };
 
+// Estado inicial del formulario de vehículo
+const initialFormState = {
+    placa: '',
+    marca: '',
+    modelo: '',
+    ano: '',
+    tipo: '',
+    color: '',
+    vin: '',
+    numero_chasis: '',
+    capacidad_pasajeros: '',
+    capacidad_kg: '',
+    observaciones: '',
+    km_intervalo_mantencion: '10000' // <--- NUEVO CAMPO (Valor sugerido)
+};
+
 // --- COMPONENTES AUXILIARES DE ADJUNTOS (adaptados para Documentos Vehiculares) ---
 
 const DocAdjuntoUploader = ({ documentoId, onUploadSuccess, disabled }) => {
@@ -413,19 +429,25 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
     useEffect(() => {
         if (editingVehicle) {
             setForm({
-                placa: editingVehicle.placa || '', marca: editingVehicle.marca || '',
-                modelo: editingVehicle.modelo || '', ano: editingVehicle.ano || '',
-                tipo: editingVehicle.tipo || '', color: editingVehicle.color || '',
-                vin: editingVehicle.vin || '', capacidad_pasajeros: editingVehicle.capacidad_pasajeros || '',
-                capacidad_kg: editingVehicle.capacidad_kg || '', numero_chasis: editingVehicle.numero_chasis || '',
+                ...initialFormState,
+                placa: editingVehicle.placa || '',
+                marca: editingVehicle.marca || '',
+                modelo: editingVehicle.modelo || '',
+                ano: editingVehicle.ano || '',
+                tipo: editingVehicle.tipo || '',
+                color: editingVehicle.color || '',
+                vin: editingVehicle.vin || '',
+                capacidad_pasajeros: editingVehicle.capacidad_pasajeros || '',
+                capacidad_kg: editingVehicle.capacidad_kg || '',
+                numero_chasis: editingVehicle.numero_chasis || '',
                 observaciones: editingVehicle.observaciones || '',
+                km_intervalo_mantencion: (editingVehicle.km_intervalo_mantencion !== undefined && editingVehicle.km_intervalo_mantencion !== null) ? String(editingVehicle.km_intervalo_mantencion) : initialFormState.km_intervalo_mantencion
             });
             if (editingVehicle.id) {
                 fetchDocuments(editingVehicle.id);
             }
         } else {
-            setForm({ placa: '', marca: '', modelo: '', ano: '', tipo: '', color: '', vin: '', 
-                     capacidad_pasajeros: '', capacidad_kg: '', numero_chasis: '', observaciones: '' });
+            setForm({ ...initialFormState });
             setDocs([]);
         }
         setActiveTab('basico');
@@ -579,6 +601,19 @@ const VehiculoFormModal = ({ isOpen, onClose, onSave, editingVehicle, apiError, 
                                         <div className="form-group-pro">
                                             <label>Color</label>
                                             <input name="color" value={form.color} onChange={handleChange} placeholder="Ej: BLANCO" />
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Intervalo Mantención (Km)</label>
+                                            <input
+                                                type="number"
+                                                name="km_intervalo_mantencion"
+                                                value={form.km_intervalo_mantencion}
+                                                onChange={handleChange}
+                                                placeholder="Ej: 10000"
+                                            />
+                                            <small style={{color: '#666', fontSize: '0.8em'}}>
+                                                Cada cuántos Km se debe realizar mantención.
+                                            </small>
                                         </div>
                                     </div>
                                 </div>
@@ -848,6 +883,16 @@ function Vehiculos({ user, token }) {
         }
     };
 
+    // Abre el modal de edición asegurando que el campo km_intervalo_mantencion tenga valor por defecto
+    const handleEditClick = (vehiculo) => {
+        setFormError(null);
+        setEditingVehicle({
+            ...vehiculo,
+            km_intervalo_mantencion: (vehiculo.km_intervalo_mantencion !== undefined && vehiculo.km_intervalo_mantencion !== null) ? vehiculo.km_intervalo_mantencion : 10000
+        });
+        setShowModal(true);
+    };
+
     const fetchVehicleAttachments = useCallback(async (vehId) => {
         if (!vehId) return;
         setAttachmentsLoading(true);
@@ -991,6 +1036,7 @@ function Vehiculos({ user, token }) {
                                 <th>Modelo</th>
                                 <th>Año</th>
                                 <th>Tipo</th>
+                                <th>Intervalo Mant.</th>
                                 {(canWrite || isAdmin) && <th>Acciones</th>}
                             </tr>
                         </thead>
@@ -1002,12 +1048,13 @@ function Vehiculos({ user, token }) {
                                     <td>{v.modelo}</td>
                                     <td>{v.ano}</td>
                                     <td><span className="badge-tipo">{v.tipo}</span></td>
+                                    <td>{v.km_intervalo_mantencion ? v.km_intervalo_mantencion.toLocaleString() : '-'} km</td>
                                     {(canWrite || isAdmin) && (
                                         <td>
                                             <div className="action-buttons-pro">
                                                 {canWrite && (
                                                     <button 
-                                                        onClick={() => { setEditingVehicle(v); setFormError(null); setShowModal(true); }} 
+                                                        onClick={() => handleEditClick(v)} 
                                                         className="btn-icon-pro btn-edit-pro"
                                                         title="Editar"
                                                     >
