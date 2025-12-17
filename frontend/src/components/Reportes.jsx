@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api';
 import './Reportes.css';
 import DetalleVehiculoModal from './DetalleVehiculoModal.jsx';
+import { Download, Search, FileText } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable'; // <--- CAMBIO IMPORTANTE AQUÍ
 
 const formatCurrency = (value) => {
     if (value === null || value === undefined) return '-';
@@ -30,25 +34,24 @@ const KPI_INITIAL_STATE = {
 
 function Reportes({ token }) {
     const [kpis, setKpis] = useState(KPI_INITIAL_STATE);
-    const [mantenimientos, setMantenimientos] = useState([]);
     const [licencias, setLicencias] = useState([]);
-    const [metaMantenimientos, setMetaMantenimientos] = useState({});
     const [metaLicencias, setMetaLicencias] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [diasVentanaMantenimientos, setDiasVentanaMantenimientos] = useState(30);
     const [diasVentanaLicencias, setDiasVentanaLicencias] = useState(60);
     
     // Estados para colapsables y modales
-    const [mantenimientosExpanded, setMantenimientosExpanded] = useState(true);
     const [licenciasExpanded, setLicenciasExpanded] = useState(true);
-    const [modalDetalle, setModalDetalle] = useState(null); // null | 'vehiculos' | 'conductores' | 'ordenes'
+    const [modalDetalle, setModalDetalle] = useState(null); 
 
-    // Estados para análisis de vehículos (Combustible)
+    // Estados para análisis de vehículos
     const [analisisVehiculos, setAnalisisVehiculos] = useState([]);
     const [loadingAnalisis, setLoadingAnalisis] = useState(false);
     const [selectedVehiculoId, setSelectedVehiculoId] = useState(null);
     const [showDetalleVehiculoModal, setShowDetalleVehiculoModal] = useState(false);
+    
+    // Estado para el buscador de patentes
+    const [filtroPatente, setFiltroPatente] = useState('');
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -67,11 +70,7 @@ function Reportes({ token }) {
             const resCosto = await apiFetch('/api/reportes/costo_mantenimiento_mensual');
             if (resCosto.status !== 200) throw new Error('Error al cargar costos');
 
-            // 3. Mantenimientos por vencer
-            const resMant = await apiFetch(`/api/reportes/mantenimientos_por_vencer?dias=${diasVentanaMantenimientos}`);
-            if (resMant.status !== 200) throw new Error('Error al cargar mantenimientos');
-
-            // 4. Licencias por vencer
+            // 3. Licencias por vencer
             const resLic = await apiFetch(`/api/reportes/licencias_por_vencer?dias=${diasVentanaLicencias}`);
             if (resLic.status !== 200) throw new Error('Error al cargar licencias');
 
@@ -80,13 +79,10 @@ function Reportes({ token }) {
                 costo_total_clp: resCosto.data.data.costo_total_clp,
             });
 
-            setMantenimientos(resMant.data.data || []);
-            setMetaMantenimientos(resMant.data.meta || {});
-
             setLicencias(resLic.data.data || []);
             setMetaLicencias(resLic.data.meta || {});
 
-            // 5. Análisis de Vehículos (Combustible)
+            // 4. Análisis de Vehículos
             try {
                 setLoadingAnalisis(true);
                 const resAnalisis = await apiFetch('/api/reportes/analisis_vehiculos');
@@ -102,7 +98,7 @@ function Reportes({ token }) {
         } finally {
             setLoading(false);
         }
-    }, [token, diasVentanaMantenimientos, diasVentanaLicencias]);
+    }, [token, diasVentanaLicencias]);
 
     useEffect(() => {
         if (token) {
@@ -113,6 +109,12 @@ function Reportes({ token }) {
         }
     }, [token, fetchData]);
 
+    // Filtrar vehículos para la vista de tabla
+    const vehiculosFiltrados = analisisVehiculos.filter(vehiculo => {
+        if (!filtroPatente) return true;
+        return vehiculo.patente && vehiculo.patente.toLowerCase().includes(filtroPatente.toLowerCase());
+    });
+
     const handleKPIClick = (tipo) => {
         setModalDetalle(tipo);
     };
@@ -122,31 +124,65 @@ function Reportes({ token }) {
         setShowDetalleVehiculoModal(true);
     };
 
-    // Helper para mostrar estado de documento y fecha de vencimiento.
-    // Cambia de color según días restantes:
-    // dias <= 0 => rojo (doc-vencido)
-    // 1 <= dias < 60 => amarillo (doc-por-vencer)
-    // dias >= 60 => verde (doc-vigente)
+    // Exportar a Excel (Tabla Principal)
+    const handleExportarExcelPrincipal = () => {
+        if (!analisisVehiculos || analisisVehiculos.length === 0) return;
+
+        const datosExcel = analisisVehiculos.map(v => {
+            const docStatus = (doc) => {
+               if (!doc) return 'SIN REGISTRO';
+               const dias = doc.dias_restantes;
+               if (dias === null || dias === undefined) return doc.estado || '-';
+               return `${doc.estado} (${dias} días)`;
+            };
+
+            return {
+                "Patente": v.patente,
+                "Marca": v.marca,
+                "Modelo": v.modelo,
+                "Año": v.ano,
+                "Tipo": v.tipo,
+                "Km Actual": v.ultimo_km,
+                "Promedio L/Km": v.promedio_l_km,
+                "Costo/Km": v.costo_por_km,
+                "Gasto Mes Actual ($)": v.total_gastado_mes,
+                "Mant. Pendiente ($)": v.costo_mant_pendiente || 0,
+                "Detalle Mant. Pendiente": v.detalle_mant_pendiente || '-',
+                "Permiso Circulación": docStatus(v.permiso_circulacion),
+                "Revisión Técnica": docStatus(v.revision_tecnica),
+                "SOAP": docStatus(v.soap),
+                "Seguro Obligatorio": docStatus(v.seguro_obligatorio)
+            };
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(datosExcel);
+        const columnWidths = [
+            { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 6 }, 
+            { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, 
+            { wch: 15 }, { wch: 15 }, { wch: 40 }, 
+            { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 }
+        ];
+        worksheet['!cols'] = columnWidths;
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Análisis Flota");
+        XLSX.writeFile(workbook, `Reporte_Flota_Detallado_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
     const getEstadoDocumento = (doc) => {
         if (!doc) return { texto: 'SIN REGISTRO', clase: 'doc-sin-registro', fecha_vencimiento: null };
-
         const fechaStr = doc.fecha_vencimiento || doc.fechaVencimiento || null;
         let dias = null;
         if (typeof doc.dias_restantes === 'number') {
             dias = doc.dias_restantes;
         } else if (fechaStr) {
-            // Calcular días restantes si backend no entregó 'dias_restantes'
             try {
                 const hoy = new Date();
                 const fecha = new Date(fechaStr);
                 const diff = Math.floor((fecha - hoy) / (1000 * 60 * 60 * 24));
                 dias = diff;
-            } catch (e) {
-                dias = null;
-            }
+            } catch (e) { dias = null; }
         }
 
-        // Si no pudimos determinar días restantes, fallback a estado textual si lo hay
         if (dias === null) {
             if (doc.estado === 'VENCIDO') return { texto: 'VENCIDO', clase: 'doc-vencido', fecha_vencimiento: fechaStr };
             if (doc.estado === 'POR_VENCER') return { texto: 'POR VENCER', clase: 'doc-por-vencer', fecha_vencimiento: fechaStr };
@@ -209,67 +245,7 @@ function Reportes({ token }) {
                         </div>
                     </div>
 
-                    {/* Mantenimientos por Vencer - Colapsable */}
-                    <div className="report-section">
-                        <div 
-                            className="section-header-collapsible" 
-                            onClick={() => setMantenimientosExpanded(!mantenimientosExpanded)}
-                        >
-                            <div className="section-title-collapsible">
-                                <span className="collapse-icon">{mantenimientosExpanded ? '▼' : '▶'}</span>
-                                <h3>🔧 Mantenimientos Programados ({metaMantenimientos.total || 0})</h3>
-                            </div>
-                            <div className="filter-group">
-                                <label htmlFor="diasVentanaMantenimientos">Ventana:</label>
-                                <select 
-                                    id="diasVentanaMantenimientos"
-                                    value={diasVentanaMantenimientos} 
-                                    onChange={(e) => setDiasVentanaMantenimientos(Number(e.target.value))}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="filter-select-small"
-                                >
-                                    <option value="7">7 días</option>
-                                    <option value="15">15 días</option>
-                                    <option value="30">30 días</option>
-                                    <option value="60">60 días</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        {mantenimientosExpanded && (
-                            <div className="collapsible-content">
-                                <div className="alertas-resumen">
-                                    <div className="alerta-badge vencido">
-                                        <span style={{fontSize: '1rem'}}>●</span>
-                                        <span>{metaMantenimientos.vencidos || 0} Vencidos</span>
-                                    </div>
-                                    <div className="alerta-badge critico">
-                                        <span style={{fontSize: '1rem'}}>●</span>
-                                        <span>{metaMantenimientos.criticos || 0} Críticos</span>
-                                    </div>
-                                    <div className="alerta-badge urgente">
-                                        <span style={{fontSize: '1rem'}}>●</span>
-                                        <span>{metaMantenimientos.urgentes || 0} Urgentes</span>
-                                    </div>
-                                    <div className="alerta-badge proximo">
-                                        <span style={{fontSize: '1rem'}}>●</span>
-                                        <span>{metaMantenimientos.proximos || 0} Próximos</span>
-                                    </div>
-                                </div>
-
-                                {mantenimientos.length === 0 ? (
-                                    <div className="empty-state-report">
-                                        <span className="empty-icon">✅</span>
-                                        <p>No hay mantenimientos próximos a vencer</p>
-                                    </div>
-                                ) : (
-                                    <TablaMantenimientos mantenimientos={mantenimientos} />
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Licencias por Vencer - Colapsable */}
+                    {/* Licencias por Vencer */}
                     <div className="report-section">
                         <div 
                             className="section-header-collapsible" 
@@ -328,23 +304,52 @@ function Reportes({ token }) {
                         )}
                     </div>
 
-                    {/* Análisis Detallado de Vehículos (Combustible) */}
+                    {/* Análisis Detallado de Vehículos */}
                     <div className="reportes-section">
-                        <div className="section-header">
+                        <div className="section-header" style={{display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', alignItems: 'center'}}>
                             <div>
                                 <h3>🚗 Análisis Detallado de Vehículos</h3>
                                 <p className="section-subtitle">
-                                    Consumo de combustible y documentación obligatoria
+                                    Consumo, documentos y mantenimientos
                                 </p>
+                            </div>
+                            
+                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                {/* BUSCADOR DE PATENTE */}
+                                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                    <Search size={16} style={{ position: 'absolute', left: '10px', color: '#888' }} />
+                                    <input 
+                                        type="text" 
+                                        placeholder="Buscar patente..." 
+                                        value={filtroPatente}
+                                        onChange={(e) => setFiltroPatente(e.target.value)}
+                                        style={{ 
+                                            padding: '8px 8px 8px 32px', 
+                                            borderRadius: '6px', 
+                                            border: '1px solid #ddd',
+                                            fontSize: '0.9rem',
+                                            width: '180px'
+                                        }}
+                                    />
+                                </div>
+
+                                <button 
+                                    className="btn btn-secondary" 
+                                    onClick={handleExportarExcelPrincipal}
+                                    disabled={loadingAnalisis || analisisVehiculos.length === 0}
+                                    style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
+                                >
+                                    <Download size={16} /> Exportar Excel
+                                </button>
                             </div>
                         </div>
 
                         {loadingAnalisis ? (
                             <div className="loading-message">Cargando análisis...</div>
-                        ) : analisisVehiculos.length === 0 ? (
+                        ) : vehiculosFiltrados.length === 0 ? (
                             <div className="empty-state-report">
-                                <span className="empty-icon">📊</span>
-                                <p>No hay datos suficientes para análisis</p>
+                                <span className="empty-icon">🔍</span>
+                                <p>{filtroPatente ? 'No se encontraron vehículos con esa patente' : 'No hay datos suficientes'}</p>
                             </div>
                         ) : (
                             <div className="table-container-report">
@@ -354,20 +359,22 @@ function Reportes({ token }) {
                                             <th>Patente</th>
                                             <th>Marca/Modelo</th>
                                             <th>Año</th>
-                                            <th>Tipo</th>
                                             <th>Último KM</th>
                                             <th>Promedio L/KM</th>
                                             <th>Costo/KM</th>
-                                            <th>Gasto Último Mes</th>
+                                            {/* NUEVAS COLUMNAS */}
+                                            <th>Mant. Pendiente ($)</th>
+                                            <th>Detalle Mant.</th>
+                                            {/* FIN NUEVAS COLUMNAS */}
                                             <th>Permiso Circ.</th>
                                             <th>Rev. Técnica</th>
                                             <th>SOAP</th>
                                             <th>Seguro Oblig.</th>
-                                                <th></th>
+                                            <th></th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {analisisVehiculos.map((vehiculo) => {
+                                        {vehiculosFiltrados.map((vehiculo) => {
                                             const permiso = getEstadoDocumento(vehiculo.permiso_circulacion);
                                             const revision = getEstadoDocumento(vehiculo.revision_tecnica);
                                             const soap = getEstadoDocumento(vehiculo.soap);
@@ -378,19 +385,25 @@ function Reportes({ token }) {
                                                     <td><strong>{vehiculo.patente}</strong></td>
                                                     <td>{vehiculo.marca} {vehiculo.modelo}</td>
                                                     <td>{vehiculo.ano}</td>
-                                                    <td>{vehiculo.tipo}</td>
                                                     <td>{vehiculo.ultimo_km ? vehiculo.ultimo_km.toLocaleString() : '0'} km</td>
                                                     <td>{vehiculo.promedio_l_km || '0'} L/km</td>
                                                     <td>{formatCurrency(vehiculo.costo_por_km)}</td>
-                                                    <td>{formatCurrency(vehiculo.total_gastado_mes)}</td>
+                                                    
+                                                    {/* NUEVAS CELDAS */}
+                                                    <td style={{color: vehiculo.costo_mant_pendiente > 0 ? '#d32f2f' : 'inherit', fontWeight: vehiculo.costo_mant_pendiente > 0 ? 'bold' : 'normal'}}>
+                                                        {formatCurrency(vehiculo.costo_mant_pendiente || 0)}
+                                                    </td>
+                                                    <td style={{fontSize: '0.8rem', maxWidth: '200px'}} title={vehiculo.detalle_mant_pendiente}>
+                                                        {vehiculo.detalle_mant_pendiente && vehiculo.detalle_mant_pendiente.length > 30 
+                                                            ? vehiculo.detalle_mant_pendiente.substring(0, 30) + '...' 
+                                                            : vehiculo.detalle_mant_pendiente || '-'}
+                                                    </td>
+
                                                     <td>
                                                         <div>
                                                             <span className={`doc-badge ${permiso.clase}`} title={permiso.fecha_vencimiento ? formatDate(permiso.fecha_vencimiento) : ''}>
                                                                 {permiso.texto}
                                                             </span>
-                                                            {permiso.fecha_vencimiento && (
-                                                                <div className="doc-fecha">{formatDate(permiso.fecha_vencimiento)}</div>
-                                                            )}
                                                         </div>
                                                     </td>
                                                     <td>
@@ -398,9 +411,6 @@ function Reportes({ token }) {
                                                             <span className={`doc-badge ${revision.clase}`} title={revision.fecha_vencimiento ? formatDate(revision.fecha_vencimiento) : ''}>
                                                                 {revision.texto}
                                                             </span>
-                                                            {revision.fecha_vencimiento && (
-                                                                <div className="doc-fecha">{formatDate(revision.fecha_vencimiento)}</div>
-                                                            )}
                                                         </div>
                                                     </td>
                                                     <td>
@@ -408,9 +418,6 @@ function Reportes({ token }) {
                                                             <span className={`doc-badge ${soap.clase}`} title={soap.fecha_vencimiento ? formatDate(soap.fecha_vencimiento) : ''}>
                                                                 {soap.texto}
                                                             </span>
-                                                            {soap.fecha_vencimiento && (
-                                                                <div className="doc-fecha">{formatDate(soap.fecha_vencimiento)}</div>
-                                                            )}
                                                         </div>
                                                     </td>
                                                     <td>
@@ -418,9 +425,6 @@ function Reportes({ token }) {
                                                             <span className={`doc-badge ${seguro.clase}`} title={seguro.fecha_vencimiento ? formatDate(seguro.fecha_vencimiento) : ''}>
                                                                 {seguro.texto}
                                                             </span>
-                                                            {seguro.fecha_vencimiento && (
-                                                                <div className="doc-fecha">{formatDate(seguro.fecha_vencimiento)}</div>
-                                                            )}
                                                         </div>
                                                     </td>
                                                     <td style={{width:'1rem'}}>
@@ -437,7 +441,7 @@ function Reportes({ token }) {
                 </>
             )}
 
-            {/* Modal de Detalle */}
+            {/* Modal de Detalle con Exportación */}
             {modalDetalle && (
                 <ModalDetalle 
                     tipo={modalDetalle} 
@@ -451,54 +455,6 @@ function Reportes({ token }) {
                     onClose={() => setShowDetalleVehiculoModal(false)}
                 />
             )}
-        </div>
-    );
-}
-
-// Componente para Tabla de Mantenimientos
-function TablaMantenimientos({ mantenimientos }) {
-    return (
-        <div className="table-container-report">
-            <table className="report-table">
-                <thead>
-                    <tr>
-                        <th>Urgencia</th>
-                        <th>Vehículo</th>
-                        <th>Tipo</th>
-                        <th>Descripción</th>
-                        <th>Fecha Programada</th>
-                        <th>Días Restantes</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {mantenimientos.map((mant) => (
-                        <tr key={mant.id} className={`row-${mant.urgencia}`}>
-                            <td>
-                                <span className={`urgencia-badge ${mant.urgencia}`}>
-                                    <span style={{fontSize: '0.875rem'}}>●</span>
-                                    <span>{mant.urgencia === 'vencido' ? 'VENCIDO' : 
-                                           mant.urgencia === 'critico' ? 'CRÍTICO' : 
-                                           mant.urgencia === 'urgente' ? 'URGENTE' : 'PRÓXIMO'}</span>
-                                </span>
-                            </td>
-                            <td>
-                                <div className="vehiculo-cell">
-                                    <strong>{mant.vehiculo?.placa || 'N/A'}</strong>
-                                    <small>{mant.vehiculo?.marca} {mant.vehiculo?.modelo}</small>
-                                </div>
-                            </td>
-                            <td>{mant.tipo_mantenimiento}</td>
-                            <td className="descripcion-cell">{mant.descripcion || '-'}</td>
-                            <td>{formatDate(mant.fecha_programada)}</td>
-                            <td>
-                                <strong className={`dias-restantes ${mant.urgencia}`}>
-                                    {mant.dias_restantes} días
-                                </strong>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
         </div>
     );
 }
@@ -556,7 +512,7 @@ function TablaLicencias({ licencias }) {
     );
 }
 
-// Modal de Detalle para KPIs
+// --- MODAL DE DETALLE CON EXPORTACIÓN ---
 function ModalDetalle({ tipo, onClose }) {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -588,11 +544,143 @@ function ModalDetalle({ tipo, onClose }) {
         }
     };
 
+    // --- LÓGICA DE EXPORTACIÓN MODAL ---
+    
+    // Preparar datos segun el tipo
+    const getExportData = () => {
+        let headers = [];
+        let rows = [];
+        let title = getTitulo();
+
+        if (tipo === 'vehiculos') {
+            headers = ['Placa', 'Marca/Modelo', 'Tipo', 'Año', 'KM Actual', 'KM Recorridos'];
+            rows = data.map(v => [
+                v.placa || '-',
+                `${v.marca || ''} ${v.modelo || ''}`,
+                v.tipo || '-',
+                v.ano || '-',
+                v.km_actual ? v.km_actual.toLocaleString() : '0',
+                v.km_recorridos ? v.km_recorridos.toLocaleString() : '0'
+            ]);
+        } else if (tipo === 'conductores') {
+            headers = ['Conductor', 'RUT', 'Licencia', 'Vencimiento', 'Estado', 'Contacto'];
+            rows = data.map(c => [
+                c.nombre_completo,
+                c.rut || '-',
+                `${c.licencia_tipo} - ${c.licencia_numero}`,
+                formatDate(c.licencia_vencimiento),
+                c.estado || '-',
+                c.telefono || '-'
+            ]);
+        } else if (tipo === 'ordenes') {
+            headers = ['ID', 'Vehículo', 'Conductor', 'Origen', 'Destino', 'Fecha Prog.', 'Estado'];
+            rows = data.map(o => [
+                o.id,
+                o.vehiculo_info || '-',
+                o.conductor_nombre || '-',
+                o.origen || '-',
+                o.destino || '-',
+                formatDate(o.fecha_inicio_programada),
+                o.estado || '-'
+            ]);
+        } else if (tipo === 'mantenimientos') {
+            headers = ['Patente', 'Modelo', 'Tipo', 'Descripción', 'F. Programada', 'Costo'];
+            rows = data.map(m => [
+                m.vehiculo_placa || '-',
+                m.vehiculo_modelo || '-',
+                m.tipo || '-',
+                m.descripcion || '-',
+                formatDate(m.fecha_programada),
+                m.costo ? `$ ${m.costo}` : '-'
+            ]);
+        }
+
+        return { headers, rows, title };
+    };
+
+    const handleExportExcel = () => {
+        if (!data || data.length === 0) return;
+        const { headers, rows, title } = getExportData();
+        
+        // Crear objeto de datos con claves de header para XLSX
+        const excelData = rows.map(row => {
+            let obj = {};
+            headers.forEach((header, index) => {
+                obj[header] = row[index];
+            });
+            return obj;
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(excelData);
+        // Ajuste basico de ancho
+        const wscols = headers.map(() => ({ wch: 20 }));
+        worksheet['!cols'] = wscols;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte");
+        XLSX.writeFile(workbook, `${title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
+    const handleExportPDF = () => {
+        try {
+            if (!data || data.length === 0) return;
+            const { headers, rows, title } = getExportData();
+
+            const doc = new jsPDF();
+            
+            // Remover emojis del título para PDF (jsPDF no soporta emojis)
+            const titleSinEmojis = title.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+            
+            // Titulo
+            doc.setFontSize(16);
+            doc.text(titleSinEmojis, 14, 20);
+            doc.setFontSize(10);
+            doc.text(`Fecha de emisión: ${new Date().toLocaleDateString('es-CL')}`, 14, 28);
+
+            // Tabla - Usando la función explícita para asegurar compatibilidad
+            autoTable(doc, {
+                startY: 35,
+                head: [headers],
+                body: rows,
+                theme: 'grid',
+                styles: { fontSize: 8 },
+                headStyles: { fillColor: [41, 128, 185] } // Color azul similar al tema
+            });
+
+            doc.save(`${titleSinEmojis.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
+        } catch (error) {
+            console.error("Error al exportar PDF:", error);
+            alert("Hubo un error al generar el PDF. Revisa la consola para más detalles.");
+        }
+    };
+
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-detalle" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header-detalle">
                     <h3>{getTitulo()}</h3>
+                    
+                    <div className="modal-actions" style={{display: 'flex', gap: '0.5rem', marginLeft: 'auto', marginRight: '1rem'}}>
+                        <button 
+                            className="btn btn-secondary btn-sm" 
+                            onClick={handleExportExcel}
+                            disabled={loading || data.length === 0}
+                            title="Exportar a Excel"
+                            style={{display: 'flex', alignItems: 'center', gap: '4px'}}
+                        >
+                            <Download size={14} /> Excel
+                        </button>
+                        <button 
+                            className="btn btn-secondary btn-sm" 
+                            onClick={handleExportPDF}
+                            disabled={loading || data.length === 0}
+                            title="Exportar a PDF"
+                            style={{display: 'flex', alignItems: 'center', gap: '4px'}}
+                        >
+                            <FileText size={14} /> PDF
+                        </button>
+                    </div>
+
                     <button className="btn-close-modal" onClick={onClose}>✕</button>
                 </div>
                 <div className="modal-body-detalle">
@@ -612,7 +700,7 @@ function ModalDetalle({ tipo, onClose }) {
     );
 }
 
-// Tabla del modal para Mantenimientos (sin urgencia, solo detalle)
+// Tabla del modal para Mantenimientos
 function TablaDetalleMantenimientos({ data }) {
     if (!data || data.length === 0) {
         return <div className="empty-state-report">No hay mantenimientos para mostrar</div>;

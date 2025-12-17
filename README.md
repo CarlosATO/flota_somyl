@@ -347,3 +347,4 @@ Para iniciar la APPS
 
 **Versión:** 1.0.0  
 **Última actualización:** Noviembre 2025
+cd "/Users/carlosalegria/Desktop/Aplicaciones Carlos Alegria/flotas" && "/Users/carlosalegria/Desktop/Aplicaciones Carlos Alegria/flotas/.venv/bin/python" run.py

@@ -33,7 +33,7 @@ def get_kpis_resumen():
         ordenes_res = supabase.table('flota_ordenes').select('id', count='exact').not_.in_('estado', ['completada', 'cancelada']).execute()
         ordenes_activas = ordenes_res.count if ordenes_res.count is not None else 0
 
-        # Mantenimientos pendientes (no completados ni cancelados) - estados en mayúsculas
+        # Mantenimientos pendientes (no completados ni cancelados)
         mantenimientos_res = supabase.table('flota_mantenimientos').select('id', count='exact').in_('estado', ['PROGRAMADO', 'PENDIENTE', 'EN_TALLER']).is_('deleted_at', None).execute()
         mantenimientos_pendientes = mantenimientos_res.count if mantenimientos_res.count is not None else 0
 
@@ -81,81 +81,6 @@ def get_costo_mantenimiento():
     except Exception as e:
         current_app.logger.error(f'Error en costo_mantenimiento_mensual: {e}')
         return jsonify({'status': 'error', 'message': 'Error al calcular costo de mantenimiento'}), 500
-
-
-@reportes_bp.route('/mantenimientos_por_vencer', methods=['GET'])
-@auth_required
-def get_mantenimientos_por_vencer():
-    """
-    Obtiene mantenimientos próximos a vencer o vencidos.
-    Parámetros opcionales:
-    - dias (int): ventana de días a futuro (default: 30)
-    """
-    try:
-        supabase = current_app.config.get('SUPABASE')
-        if not supabase:
-            return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
-
-        # Parámetros
-        dias = int(request.args.get('dias', 30))
-        hoy = datetime.now().date()
-        fecha_limite = (hoy + timedelta(days=dias)).isoformat()
-
-        # Buscar mantenimientos programados o pendientes que vencen pronto
-        query = supabase.table('flota_mantenimientos').select(
-            '*, vehiculo:flota_vehiculos(id, placa, marca, modelo, tipo)'
-        ).in_('estado', ['programado', 'pendiente']).lte('fecha_programada', fecha_limite).is_('deleted_at', None).order('fecha_programada', desc=False)
-
-        res = query.execute()
-        mantenimientos = res.data or []
-
-        # Calcular días restantes y nivel de urgencia
-        resultado = []
-        for mant in mantenimientos:
-            fecha_prog = mant.get('fecha_programada')
-            if not fecha_prog:
-                continue
-            
-            try:
-                fecha_dt = datetime.fromisoformat(fecha_prog.replace('Z', '+00:00')).date()
-                dias_restantes = (fecha_dt - hoy).days
-                
-                # Determinar urgencia
-                if dias_restantes < 0:
-                    urgencia = 'vencido'
-                elif dias_restantes <= 7:
-                    urgencia = 'critico'
-                elif dias_restantes <= 15:
-                    urgencia = 'urgente'
-                else:
-                    urgencia = 'proximo'
-                
-                resultado.append({
-                    **mant,
-                    'dias_restantes': dias_restantes,
-                    'urgencia': urgencia
-                })
-            except:
-                continue
-
-        # Ordenar por días restantes (más urgentes primero)
-        resultado.sort(key=lambda x: x['dias_restantes'])
-
-        return jsonify({
-            'status': 'success',
-            'data': resultado,
-            'meta': {
-                'total': len(resultado),
-                'vencidos': len([m for m in resultado if m['urgencia'] == 'vencido']),
-                'criticos': len([m for m in resultado if m['urgencia'] == 'critico']),
-                'urgentes': len([m for m in resultado if m['urgencia'] == 'urgente']),
-                'proximos': len([m for m in resultado if m['urgencia'] == 'proximo'])
-            }
-        }), 200
-
-    except Exception as e:
-        current_app.logger.error(f'Error en mantenimientos_por_vencer: {e}')
-        return jsonify({'status': 'error', 'message': 'Error al obtener mantenimientos por vencer'}), 500
 
 
 @reportes_bp.route('/licencias_por_vencer', methods=['GET'])
@@ -252,12 +177,12 @@ def get_detalle_vehiculos():
 
         # 2. Obtener todos los kilometrajes de órdenes
         res_ordenes = supabase.table('flota_ordenes').select(
-            'vehiculo_id, kilometraje_inicio, kilometraje_fin'
+            'vehiculo_id, kilometraje_inicio, kilometraje_fin, estado'
         ).execute()
 
         ordenes = res_ordenes.data or []
 
-        # 3. Calcular KM máximo por vehículo y KM total recorrido (sum of deltas)
+        # 3. Calcular KM máximo por vehículo y KM total recorrido
         km_por_vehiculo = {}
         km_recorridos_por_vehiculo = {}
         for orden in ordenes:
@@ -271,15 +196,11 @@ def get_detalle_vehiculos():
             # Encontrar el valor máximo
             valores = []
             if km_inicio is not None:
-                try:
-                    valores.append(int(km_inicio))
-                except:
-                    pass
+                try: valores.append(int(float(km_inicio)))
+                except: pass
             if km_fin is not None:
-                try:
-                    valores.append(int(km_fin))
-                except:
-                    pass
+                try: valores.append(int(float(km_fin)))
+                except: pass
             
             if valores:
                 km_max = max(valores)
@@ -287,14 +208,14 @@ def get_detalle_vehiculos():
                     km_por_vehiculo[vehiculo_id] = km_max
                 else:
                     km_por_vehiculo[vehiculo_id] = max(km_por_vehiculo[vehiculo_id], km_max)
-            # Sum deltas (kilometraje_fin - kilometraje_inicio) for completed orders
+            
+            # Sum deltas
             try:
                 if orden.get('kilometraje_inicio') is not None and orden.get('kilometraje_fin') is not None:
                     ki_val = int(float(orden.get('kilometraje_inicio')))
                     kf_val = int(float(orden.get('kilometraje_fin')))
                     if kf_val > ki_val and orden.get('estado') and str(orden.get('estado')).lower() == 'completada':
                         delta = kf_val - ki_val
-                        # sanity guard
                         if delta >= 0 and delta < 100000:
                             km_recorridos_por_vehiculo[vehiculo_id] = km_recorridos_por_vehiculo.get(vehiculo_id, 0) + delta
             except Exception:
@@ -332,7 +253,6 @@ def get_detalle_conductores():
         res = query.execute()
         conductores = res.data or []
         
-        # Agregar nombre completo
         for c in conductores:
             c['nombre_completo'] = f"{c.get('nombre', '')} {c.get('apellido', '')}".strip()
         
@@ -349,33 +269,22 @@ def get_detalle_conductores():
 @reportes_bp.route('/detalle_mantenimientos', methods=['GET'])
 @auth_required
 def get_detalle_mantenimientos():
-    """Obtiene detalle de mantenimientos pendientes con información del vehículo."""
+    """Obtiene detalle de mantenimientos pendientes con información del vehículo (para Modal KPI)."""
     try:
         supabase = current_app.config.get('SUPABASE')
         if not supabase:
             return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
 
-        # Filtrar mantenimientos pendientes/programados/en taller
-        # Usamos select('*') para evitar errores si cambian nombres de columnas
         query = supabase.table('flota_mantenimientos').select(
             '*, vehiculo:flota_vehiculos(placa, marca, modelo)'
         ).in_('estado', ['PROGRAMADO', 'PENDIENTE', 'EN_TALLER']).is_('deleted_at', None).order('fecha_programada', desc=False)
 
-        try:
-            res = query.execute()
-        except Exception as e:
-            current_app.logger.error(f'Error ejecutando consulta detalle_mantenimientos: {e}')
-            # devolver detalle del error para ayudar en debugging
-            return jsonify({'status': 'error', 'message': 'Error en consulta de mantenimientos', 'detail': str(e)}), 500
-
+        res = query.execute()
         mantenimientos = res.data or []
-
-        current_app.logger.debug(f'detalle_mantenimientos: rows={len(mantenimientos)} sample={mantenimientos[:3]}')
 
         resultado = []
         for m in mantenimientos:
             veh = m.get('vehiculo') or {}
-            # soporte para campo tipo_mantenimiento (existente) o tipo (antiguo)
             tipo_val = m.get('tipo_mantenimiento') if m.get('tipo_mantenimiento') is not None else m.get('tipo')
             resultado.append({
                 'id': m.get('id'),
@@ -413,7 +322,6 @@ def get_detalle_ordenes():
         res = query.execute()
         ordenes = res.data or []
         
-        # Formatear datos
         for o in ordenes:
             if o.get('conductor'):
                 o['conductor_nombre'] = f"{o['conductor'].get('nombre', '')} {o['conductor'].get('apellido', '')}".strip()
@@ -437,52 +345,54 @@ def get_analisis_vehiculos():
     Obtiene análisis completo de vehículos con:
     - Métricas de consumo de combustible
     - Estado de documentos obligatorios
-    - Alertas de vencimiento
-    - Mantenimientos pendientes (Costo y Detalle) [NUEVO]
+    - Mantenimientos pendientes (Costo y Detalle)
     """
     try:
         supabase = current_app.config.get('SUPABASE')
         if not supabase:
             return jsonify({'status': 'error', 'message': 'Error de configuración'}), 500
 
-        # 1. Obtener todos los vehículos activos
+        # 1. Obtener vehículos
         vehiculos_res = supabase.table('flota_vehiculos').select(
             'id, placa, marca, modelo, ano, tipo'
         ).is_('deleted_at', None).order('placa').execute()
-        
         vehiculos = vehiculos_res.data or []
         
-        # 2. Obtener todas las cargas de combustible
+        # 2. Obtener combustible
         combustible_res = supabase.table('flota_combustible').select(
             'vehiculo_id, kilometraje, litros_cargados, costo_total, fecha_carga'
         ).execute()
-        
         cargas = combustible_res.data or []
         
-        # 3. Obtener documentos de vehículos
+        # 3. Obtener documentos
         documentos_res = supabase.table('flota_vehiculos_documentos').select(
             'vehiculo_id, tipo_documento, fecha_vencimiento'
         ).is_('deleted_at', None).execute()
-        
         documentos = documentos_res.data or []
 
-        # 4. [NUEVO] Obtener mantenimientos pendientes/programados/en taller
+        # 4. Obtener mantenimientos pendientes
         mantenimientos_res = supabase.table('flota_mantenimientos').select(
             'vehiculo_id, costo, descripcion, tipo_mantenimiento'
         ).in_('estado', ['PROGRAMADO', 'PENDIENTE', 'EN_TALLER']).is_('deleted_at', None).execute()
-
         mantenimientos = mantenimientos_res.data or []
         
-        # 5. Procesar datos por vehículo
+        # 5. Procesar
         hoy = datetime.now().date()
         resultado = []
         
+        import re
+        def _normalize_tipo(t):
+            if not t: return ''
+            s = str(t).strip().lower()
+            s = re.sub(r"[\s_\-]+", '', s)
+            s = re.sub(r"[^a-z0-9]+", '', s)
+            return s
+
         for vehiculo in vehiculos:
             vehiculo_id = vehiculo['id']
             
-            # --- LÓGICA COMBUSTIBLE ---
+            # -- Combustible --
             cargas_vehiculo = [c for c in cargas if c.get('vehiculo_id') == vehiculo_id]
-            
             if len(cargas_vehiculo) >= 2:
                 cargas_ordenadas = sorted(cargas_vehiculo, key=lambda x: x.get('kilometraje', 0))
                 km_min = cargas_ordenadas[0].get('kilometraje', 0) or 0
@@ -498,91 +408,50 @@ def get_analisis_vehiculos():
                 else:
                     promedio_l_km = 0
                     costo_por_km = 0
-                
                 ultimo_km = km_max
             else:
-                promedio_l_km = 0
-                costo_por_km = 0
-                total_costo = 0
-                ultimo_km = 0
+                promedio_l_km, costo_por_km, total_costo, ultimo_km = 0, 0, 0, 0
             
             hace_30_dias = (datetime.now() - timedelta(days=30)).isoformat()
-            cargas_mes = [c for c in cargas_vehiculo 
-                         if c.get('fecha_carga', '') and c.get('fecha_carga') >= hace_30_dias]
+            cargas_mes = [c for c in cargas_vehiculo if c.get('fecha_carga', '') and c.get('fecha_carga') >= hace_30_dias]
             total_mes = sum(float(c.get('costo_total') or 0) for c in cargas_mes)
 
-            # --- [NUEVO] LÓGICA MANTENIMIENTOS PENDIENTES ---
+            # -- Mantenimientos Pendientes --
             mants_vehiculo = [m for m in mantenimientos if m.get('vehiculo_id') == vehiculo_id]
-            
-            # Sumar costos (validando que no sean None)
             costo_mant_pendiente = sum(float(m.get('costo') or 0) for m in mants_vehiculo)
-            
-            # Concatenar descripciones
-            # Formato: "TIPO: Descripcion | TIPO: Descripcion"
             descripciones = []
             for m in mants_vehiculo:
                 tipo = m.get('tipo_mantenimiento') or 'MANT'
                 desc = m.get('descripcion') or ''
                 if desc:
                     descripciones.append(f"{tipo}: {desc}")
-            
             detalle_mant_pendiente = " | ".join(descripciones) if descripciones else "-"
             
-            # --- LÓGICA DOCUMENTOS ---
+            # -- Documentos --
             docs_vehiculo = [d for d in documentos if d.get('vehiculo_id') == vehiculo_id]
+            tipos_docs = {'permiso_circulacion': None, 'revision_tecnica': None, 'soap': None, 'seguro_obligatorio': None}
             
-            tipos_docs = {
-                'permiso_circulacion': None,
-                'revision_tecnica': None,
-                'soap': None,
-                'seguro_obligatorio': None
-            }
-            
-            import re
-            def _normalize_tipo(t):
-                if not t: return ''
-                s = str(t).strip().lower()
-                s = re.sub(r"[\s_\-]+", '', s)
-                s = re.sub(r"[^a-z0-9]+", '', s)
-                return s
-
             for doc in docs_vehiculo:
                 tipo = doc.get('tipo_documento') or ''
                 tipo_norm = _normalize_tipo(tipo)
                 fecha_venc = doc.get('fecha_vencimiento')
-                
                 if fecha_venc:
                     try:
                         fecha_venc_date = datetime.fromisoformat(fecha_venc.replace('Z', ''))
-                        if hasattr(fecha_venc_date, 'date'):
-                            fecha_venc_date = fecha_venc_date.date()
+                        if hasattr(fecha_venc_date, 'date'): fecha_venc_date = fecha_venc_date.date()
                         dias_restantes = (fecha_venc_date - hoy).days
                         doc_obj = {
                             'fecha_vencimiento': fecha_venc,
                             'dias_restantes': dias_restantes,
-                            'estado': 'VIGENTE' if dias_restantes > 30 else 
-                                     'POR_VENCER' if dias_restantes > 0 else 'VENCIDO'
+                            'estado': 'VIGENTE' if dias_restantes > 30 else 'POR_VENCER' if dias_restantes > 0 else 'VENCIDO'
                         }
-
-                        if tipo_norm in ('permisocirculacion', 'permisodecirculacion', 'permisocirc', 'permiso'):
-                            tipos_docs['permiso_circulacion'] = doc_obj
-                        elif tipo_norm in ('revisiontecnica', 'revtecnica', 'revistatecnica', 'revisióntécnica', 'revisióntecnica', 'revisión'):
-                            tipos_docs['revision_tecnica'] = doc_obj
-                        elif tipo_norm in ('soap', 'seguroobligatorio', 'seguroobligatoriosoap', 'seguro'):
+                        if 'permiso' in tipo_norm: tipos_docs['permiso_circulacion'] = doc_obj
+                        elif 'revis' in tipo_norm: tipos_docs['revision_tecnica'] = doc_obj
+                        elif 'soap' in tipo_norm or 'seguro' in tipo_norm:
                             tipos_docs['soap'] = doc_obj
                             tipos_docs['seguro_obligatorio'] = doc_obj
-                        else:
-                            if 'permiso' in tipo_norm:
-                                tipos_docs['permiso_circulacion'] = doc_obj
-                            elif 'revis' in tipo_norm or 'itv' in tipo_norm or 'vtv' in tipo_norm:
-                                tipos_docs['revision_tecnica'] = doc_obj
-                            elif 'seguro' in tipo_norm or 'soap' in tipo_norm:
-                                tipos_docs['soap'] = doc_obj
-                                tipos_docs['seguro_obligatorio'] = doc_obj
-                    except Exception:
-                        continue
+                    except: continue
             
-            # Agregar resultado final
             resultado.append({
                 'id': vehiculo_id,
                 'patente': vehiculo.get('placa'),
@@ -594,23 +463,16 @@ def get_analisis_vehiculos():
                 'costo_por_km': costo_por_km,
                 'total_gastado_mes': round(total_mes, 0),
                 'ultimo_km': ultimo_km,
-                # NUEVOS CAMPOS:
                 'costo_mant_pendiente': costo_mant_pendiente,
                 'detalle_mant_pendiente': detalle_mant_pendiente,
-                # --------------
                 'permiso_circulacion': tipos_docs.get('permiso_circulacion'),
                 'revision_tecnica': tipos_docs.get('revision_tecnica'),
                 'soap': tipos_docs.get('soap'),
                 'seguro_obligatorio': tipos_docs.get('seguro_obligatorio')
             })
         
-        return jsonify({
-            'status': 'success',
-            'data': resultado
-        }), 200
+        return jsonify({'status': 'success', 'data': resultado}), 200
         
     except Exception as e:
         current_app.logger.error(f'Error en analisis_vehiculos: {e}')
-        import traceback
-        traceback.print_exc()
         return jsonify({'status': 'error', 'message': f'Error: {str(e)}'}), 500
