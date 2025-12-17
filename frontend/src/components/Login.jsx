@@ -6,6 +6,7 @@ function Login({ onLogin }){
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [processingSSO, setProcessingSSO] = useState(false)
 
   useEffect(() => {
     // 1. Buscamos si hay parámetros en la URL
@@ -15,17 +16,27 @@ function Login({ onLogin }){
 
     // 2. Si encontramos un token que viene del SSO
     if (ssoToken) {
-        console.log("Recibido token SSO, guardando...");
-        // Guardamos en el bolsillo CORRECTO (el del frontend)
+        console.log("Recibido token SSO, procesando automáticamente...");
+        setProcessingSSO(true);
+        
+        // Guardamos en localStorage
         localStorage.setItem('authToken', ssoToken);
-        localStorage.setItem('token', ssoToken); // Por si acaso
+        localStorage.setItem('token', ssoToken);
         localStorage.setItem('userName', ssoUser || 'Usuario SSO');
 
-        // 3. Limpiamos la URL para que no se vea feo y recargamos
+        // Notificamos a la App que estamos autenticados
+        const userData = { 
+          email: ssoUser || 'usuario@sso.com',
+          nombre: ssoUser || 'Usuario SSO'
+        };
+        
+        // Llamamos a onLogin para que la App nos deje entrar
+        onLogin(userData, ssoToken);
+        
+        // Limpiamos la URL
         window.history.replaceState({}, document.title, "/");
-        window.location.href = "/"; // Forzamos la recarga para entrar al dashboard
     }
-  }, []);
+  }, [onLogin]);
 
   const submit = async (e) =>{
     e.preventDefault()
@@ -49,6 +60,21 @@ function Login({ onLogin }){
     }finally{
       setLoading(false)
     }
+  }
+
+  // Si estamos procesando SSO, mostramos un spinner en lugar del formulario
+  if (processingSSO) {
+    return (
+      <div className="login-wrapper">
+        <div className="login-form-side" style={{width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+          <div style={{textAlign: 'center'}}>
+            <div style={{fontSize: '48px', marginBottom: '20px'}}>🔄</div>
+            <h2>Autenticando desde Portal...</h2>
+            <p style={{color: '#6b7280', marginTop: '10px'}}>Accediendo al sistema</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
