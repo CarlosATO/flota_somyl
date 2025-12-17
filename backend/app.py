@@ -107,15 +107,20 @@ def create_app():
         # an Access Denied page.
         portal_only = os.environ.get('PORTAL_ONLY', 'false').lower() == 'true'
         if portal_only:
-            has_sso = bool(request.args.get('sso_token'))
-            has_auth_header = bool(request.headers.get('Authorization'))
-            has_cookie_token = bool(request.cookies.get('authToken') or request.cookies.get('token'))
-            if not (has_sso or has_auth_header or has_cookie_token):
-                # Return a small, friendly Access Denied page (no SPA)
-                return ("<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                        "<title>Acceso Denegado</title><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
-                        ".card{max-width:760px;text-align:center;padding:48px;border-radius:8px;background:#fff;box-shadow:0 10px 30px rgba(0,0,0,0.06);}h1{font-size:42px;margin:0 0 12px;color:#111827}p{color:#6b7280;margin:0 0 16px}a.btn{display:inline-block;padding:10px 18px;background:#1d4ed8;color:white;border-radius:6px;text-decoration:none}</style></head><body>"
-                        "<div class=\"card\"><h1>Acceso Denegado</h1><p>Esta aplicación se ha movido al portal. Por favor, ingrese desde el portal oficial.</p><div style=\"margin-top:20px\"><a class=\"btn\" href=\"https://portal.datix.cl/\">Ir al Portal</a></div></div></body></html>"), 403
+            # Permitir acceso a /login si viene con sso_token en la URL (el frontend lo procesará)
+            if path == 'login' and request.args.get('sso_token'):
+                # Dejar pasar, el frontend procesará el token
+                pass
+            else:
+                has_sso = bool(request.args.get('sso_token'))
+                has_auth_header = bool(request.headers.get('Authorization'))
+                has_cookie_token = bool(request.cookies.get('authToken') or request.cookies.get('token'))
+                if not (has_sso or has_auth_header or has_cookie_token):
+                    # Return a small, friendly Access Denied page (no SPA)
+                    return ("<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                            "<title>Acceso Denegado</title><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
+                            ".card{max-width:760px;text-align:center;padding:48px;border-radius:8px;background:#fff;box-shadow:0 10px 30px rgba(0,0,0,0.06);}h1{font-size:42px;margin:0 0 12px;color:#111827}p{color:#6b7280;margin:0 0 16px}a.btn{display:inline-block;padding:10px 18px;background:#1d4ed8;color:white;border-radius:6px;text-decoration:none}</style></head><body>"
+                            "<div class=\"card\"><h1>Acceso Denegado</h1><p>Esta aplicación se ha movido al portal. Por favor, ingrese desde el portal oficial.</p><div style=\"margin-top:20px\"><a class=\"btn\" href=\"https://portal.datix.cl/\">Ir al Portal</a></div></div></body></html>"), 403
 
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
