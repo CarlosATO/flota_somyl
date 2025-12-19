@@ -10,6 +10,7 @@ import Reportes from './components/Reportes'
 import Usuarios from './components/Usuarios'
 import Combustible from './components/Combustible'
 import Adjuntos from './components/Adjuntos'
+import ReporteMantenimiento from './components/ReporteMantenimiento'
 import './App.css'
 import { apiFetch } from './lib/api'
 
@@ -163,13 +164,8 @@ function App(){
           </div>
         )}
         
-        {/* Reportes - Mantenimientos (Por ahora muestra mensaje, puedes crear componente nuevo) */}
-        {activeModule === 'reportes-mantenimientos' && (
-          <div className="dashboard-welcome">
-            <h2>Reportes de Mantenimientos</h2>
-            <p>Módulo en desarrollo...</p>
-          </div>
-        )}
+        {/* Reportes - Mantenimientos */}
+        {activeModule === 'reportes-mantenimientos' && <ReporteMantenimiento user={user} token={token} />}
       </main>
     </div>
   )

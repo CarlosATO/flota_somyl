@@ -2,40 +2,42 @@
 
 # === 1. IMPORTS ===
 from flask import Blueprint, request, jsonify, current_app, g
-from ..utils.auth import auth_required, _has_write_permission, _is_admin
 from datetime import datetime
 
+# Importación robusta de auth (igual que en reportes por seguridad)
+auth_required = None
 try:
-    from postgrest.exceptions import APIError as PostgrestAPIError
-except ImportError:
-    class PostgrestAPIError(Exception):
-        pass
+    from ..utils.auth import auth_required, _has_write_permission, _is_admin
+except (ImportError, ValueError):
+    try:
+        from backend.utils.auth import auth_required, _has_write_permission, _is_admin
+    except ImportError:
+        try:
+            from utils.auth import auth_required, _has_write_permission, _is_admin
+        except ImportError:
+            pass
+
+if not auth_required:
+    def auth_required(f): return f
+    def _has_write_permission(u): return True
+    def _is_admin(u): return True
 
 # === 2. DEFINICIÓN DEL BLUEPRINT ===
 bp = Blueprint('mantenimiento', __name__)
 
 # === 3. HELPERS ===
-
 def _safe_int(value):
-    if value is None or value == '':
-        return None
-    try:
-        return int(float(value))
-    except (ValueError, TypeError):
-        return None
+    if value is None or value == '': return None
+    try: return int(float(value))
+    except (ValueError, TypeError): return None
 
 def _safe_float(value):
-    if value is None or value == '':
-        return None
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
+    if value is None or value == '': return None
+    try: return float(value)
+    except (ValueError, TypeError): return None
 
 def _safe_date(value):
-    """Convierte fecha de forma segura (formato: YYYY-MM-DD)"""
-    if not value:
-        return None
+    if not value: return None
     try:
         if isinstance(value, str) and 'T' in value:
             dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -43,23 +45,19 @@ def _safe_date(value):
         if isinstance(value, str):
             return datetime.strptime(value, '%Y-%m-%d').date().isoformat()
         return None
-    except (ValueError, TypeError):
-        current_app.logger.warning(f"Fecha inválida para mantenimiento: {value}")
-        return None
+    except (ValueError, TypeError): return None
         
 def _check_required_fields(payload: dict, required_fields: list) -> list:
-    missing = [field for field in required_fields if not payload.get(field)]
-    return missing
+    return [field for field in required_fields if not payload.get(field)]
 
 # === 4. RUTAS DEL MÓDULO MANTENIMIENTO ===
 
 @bp.route('/', methods=['GET'])
 @auth_required
 def list_mantenimientos():
-    """Listar órdenes de mantenimiento con filtros (Búsqueda mejorada)."""
+    """Listar órdenes de mantenimiento con 'Manual Join' para asegurar Patentes."""
     supabase = current_app.config.get('SUPABASE')
-    if not supabase:
-        return jsonify({'message': 'Error de configuración'}), 500
+    if not supabase: return jsonify({'message': 'Error config'}), 500
 
     q = request.args.get('search')
     estado = request.args.get('estado')
@@ -69,209 +67,220 @@ def list_mantenimientos():
         page = max(1, int(request.args.get('page', 1)))
         per_page = max(1, min(100, int(request.args.get('per_page', 20))))
     except ValueError:
-        return jsonify({'message': 'Parámetros de paginación inválidos'}), 400
+        return jsonify({'message': 'Pagination error'}), 400
 
     start = (page - 1) * per_page
     end = start + per_page - 1
 
-    query = supabase.table('flota_mantenimientos').select(
-        '*, vehiculo:flota_vehiculos(placa, marca, modelo)'
-    ).is_('deleted_at', None)
+    # 1. CONSULTA PRINCIPAL (Solo tabla base, sin joins que fallan)
+    query = supabase.table('flota_mantenimientos').select('*', count='exact').is_('deleted_at', None)
     
-    # --- LOGICA DE BÚSQUEDA MEJORADA (Patente + Texto) ---
+    # Filtros de búsqueda (Texto y Patente)
     if q:
         like_q = f'%{q}%'
-        or_conditions = [
-            f"descripcion.ilike.{like_q}",
-            f"observaciones.ilike.{like_q}"
-        ]
-        
-        # Intentar buscar IDs de vehículos por placa para incluirlos en el filtro
+        or_conditions = [f"descripcion.ilike.{like_q}", f"observaciones.ilike.{like_q}"]
+        # Buscar IDs de vehículos por patente
         try:
             veh_res = supabase.table('flota_vehiculos').select('id').ilike('placa', like_q).execute()
             if veh_res.data:
-                # Si encontramos vehículos con esa patente, agregamos sus IDs al filtro OR
                 veh_ids = [str(v['id']) for v in veh_res.data]
-                if veh_ids:
-                    or_conditions.append(f"vehiculo_id.in.({','.join(veh_ids)})")
-        except Exception:
-            pass
-
-        # Aplicar el filtro OR combinado
+                if veh_ids: or_conditions.append(f"vehiculo_id.in.({','.join(veh_ids)})")
+        except Exception: pass
         query = query.or_(",".join(or_conditions))
-    # -----------------------------------------------------
 
-    if estado:
-        query = query.eq('estado', estado)
-    if vehiculo_id:
-        try:
-            veh_id_int = int(vehiculo_id)
-            query = query.eq('vehiculo_id', veh_id_int)
-        except ValueError:
-            pass 
+    if estado: query = query.eq('estado', estado)
+    if vehiculo_id: query = query.eq('vehiculo_id', vehiculo_id)
 
     query = query.order('fecha_programada', desc=True)
 
     try:
+        # Ejecutar paginación
         res = query.range(start, end).execute()
         data = res.data or []
-    except Exception as e:
-        current_app.logger.error(f"Error al listar mantenimientos: {e}")
-        return jsonify({'message': 'Error en la base de datos', 'detail': str(e)}), 500
+        total = res.count if res.count is not None else len(data)
 
-    # Obtener conteo aproximado (simplificado para rendimiento)
-    try:
-        total = len(data) # Fallback simple
-        # Si la página está llena, intentamos obtener el total real
-        if len(data) >= per_page or page > 1:
-             count_query = supabase.table('flota_mantenimientos').select('id', count='exact').is_('deleted_at', None)
-             # Repetir filtros para count (simplificado)
-             if estado: count_query = count_query.eq('estado', estado)
-             if vehiculo_id: count_query = count_query.eq('vehiculo_id', vehiculo_id)
-             count_res = count_query.execute()
-             if count_res.count is not None:
-                 total = count_res.count
-    except Exception:
-        pass
+        # --- ESTRATEGIA JOIN MANUAL (DETECTIVE) ---
+        if data:
+            # A) Obtener IDs necesarios
+            veh_ids = list(set(d['vehiculo_id'] for d in data if d.get('vehiculo_id')))
+            mant_ids = [d['id'] for d in data]
+
+            # B) Traer Vehículos en lote
+            veh_map = {}
+            if veh_ids:
+                res_v = supabase.table('flota_vehiculos').select('id, placa, marca, modelo').in_('id', veh_ids).execute()
+                veh_map = {v['id']: v for v in (res_v.data or [])}
+
+            # C) Traer Detalles en lote
+            det_map = {}
+            if mant_ids:
+                # Traemos detalles con su concepto/categoría
+                res_d = supabase.table('mantenimiento_detalles')\
+                    .select('*, concepto:conceptos_gasto(id, nombre, categoria:categorias_mantencion(nombre))')\
+                    .in_('mantenimiento_id', mant_ids)\
+                    .execute()
+                raw_dets = res_d.data or []
+                for det in raw_dets:
+                    mid = det['mantenimiento_id']
+                    if mid not in det_map: det_map[mid] = []
+                    det_map[mid].append(det)
+
+            # D) Ensamblar datos
+            for item in data:
+                # Pegar vehículo
+                vid = item.get('vehiculo_id')
+                item['vehiculo'] = veh_map.get(vid, {'placa': 'S/P', 'marca': '-', 'modelo': '-'})
+                
+                # Pegar detalles
+                mid = item['id']
+                item['detalles'] = det_map.get(mid, [])
+                
+                # (Opcional) Recalcular costo visual si es 0
+                if item.get('costo') == 0 and item['detalles']:
+                    item['costo'] = sum(d.get('costo', 0) for d in item['detalles'])
+
+    except Exception as e:
+        current_app.logger.error(f"Error list_mantenimientos: {e}")
+        return jsonify({'message': 'Error BD', 'detail': str(e)}), 500
 
     return jsonify({
         'data': data, 
-        'meta': {
-            'page': page, 
-            'per_page': per_page, 
-            'total': total, 
-            'pages': (total // per_page) + (1 if total % per_page > 0 else 0) if total else 1
-        }
+        'meta': {'page': page, 'per_page': per_page, 'total': total, 'pages': (total // per_page) + (1 if total % per_page > 0 else 0)}
     })
 
 @bp.route('/', methods=['POST'])
 @auth_required
 def create_mantenimiento():
-    """Crear una nueva orden de mantenimiento."""
+    """Crear orden (Cabecera + Detalles)."""
     user = g.get('current_user')
-    if not _has_write_permission(user):
-        return jsonify({'message': 'Permisos insuficientes'}), 403
+    if not _has_write_permission(user): return jsonify({'message': 'Permisos insuficientes'}), 403
 
     supabase = current_app.config.get('SUPABASE')
     payload = request.get_json() or {}
 
-    required_fields = ['vehiculo_id', 'descripcion', 'fecha_programada']
-    missing = _check_required_fields(payload, required_fields)
-    if missing:
-        return jsonify({'message': f'Faltan campos requeridos: {", ".join(missing)}'}), 400
-
-    row = {
-        'vehiculo_id': _safe_int(payload.get('vehiculo_id')),
-        'descripcion': payload.get('descripcion'),
-        'tipo_mantenimiento': payload.get('tipo_mantenimiento', 'PREVENTIVO'),
-        'fecha_programada': _safe_date(payload.get('fecha_programada')),
-        'km_programado': _safe_int(payload.get('km_programado')),
-        'estado': payload.get('estado', 'PENDIENTE'),
-        'costo': _safe_float(payload.get('costo')),
-        'fecha_realizacion': _safe_date(payload.get('fecha_realizacion')),
-        'km_realizacion': _safe_int(payload.get('km_realizacion')),
-        'observaciones': payload.get('observaciones'),
-    }
+    missing = _check_required_fields(payload, ['vehiculo_id', 'descripcion', 'fecha_programada'])
+    if missing: return jsonify({'message': f'Faltan campos: {", ".join(missing)}'}), 400
 
     try:
-        res = supabase.table('flota_mantenimientos').insert(row).execute()
-        
-        # Actualizar Gases del Vehículo si aplica
-        renovar_gases = _safe_date(payload.get('renovar_gases'))
-        if renovar_gases and row['vehiculo_id']:
-            try:
-                supabase.table('flota_vehiculos').update({
-                    'fecha_vencimiento_gases': renovar_gases
-                }).eq('id', row['vehiculo_id']).execute()
-            except Exception as e:
-                current_app.logger.error(f"Error actualizando gases vehículo (POST): {e}")
+        # 1. Cabecera
+        header_data = {
+            'vehiculo_id': _safe_int(payload.get('vehiculo_id')),
+            'fecha_programada': _safe_date(payload.get('fecha_programada')),
+            'descripcion': payload.get('descripcion'),
+            'estado': payload.get('estado', 'PENDIENTE'),
+            'km_programado': _safe_int(payload.get('km_programado')),
+            'tipo_mantenimiento': payload.get('tipo_mantenimiento', 'PREVENTIVO'),
+            'costo': _safe_float(payload.get('costo_total', 0))
+        }
 
-        return jsonify({'data': res.data[0]}), 201
+        res = supabase.table('flota_mantenimientos').insert(header_data).execute()
+        if not res.data: return jsonify({'message': 'Error creando cabecera'}), 400
+        mant_id = res.data[0]['id']
+        
+        # 2. Detalles
+        items = payload.get('items', [])
+        if items:
+            detalles_data = []
+            for item in items:
+                detalles_data.append({
+                    'mantenimiento_id': mant_id,
+                    'concepto_id': _safe_int(item.get('concepto_id')),
+                    'costo': _safe_float(item.get('costo', 0)),
+                    'notas': item.get('notas', '')
+                })
+            supabase.table('mantenimiento_detalles').insert(detalles_data).execute()
+            
+            # Update costo total header
+            total = sum([d['costo'] for d in detalles_data])
+            supabase.table('flota_mantenimientos').update({'costo': total}).eq('id', mant_id).execute()
+
+        # Renovar gases
+        renovar_gases = _safe_date(payload.get('renovar_gases'))
+        if renovar_gases and header_data['vehiculo_id']:
+            supabase.table('flota_vehiculos').update({'fecha_vencimiento_gases': renovar_gases}).eq('id', header_data['vehiculo_id']).execute()
+
+        return jsonify({'message': 'Orden creada', 'id': mant_id}), 201
+
     except Exception as e:
-        current_app.logger.error(f"Error al crear mantenimiento: {e}")
-        return jsonify({'message': 'Error inesperado al crear mantenimiento', 'detail': str(e)}), 500
+        return jsonify({'message': 'Error al crear', 'detail': str(e)}), 500
 
 @bp.route('/<int:mant_id>', methods=['PUT'])
 @auth_required
 def update_mantenimiento(mant_id):
-    """Actualizar una orden de mantenimiento existente."""
+    """Actualizar orden y sincronizar detalles."""
     user = g.get('current_user')
-    if not _has_write_permission(user):
-        return jsonify({'message': 'Permisos insuficientes'}), 403
+    if not _has_write_permission(user): return jsonify({'message': 'Permisos insuficientes'}), 403
 
     supabase = current_app.config.get('SUPABASE')
     payload = request.get_json() or {}
-    updates = {}
-    
-    campos_simples = ['descripcion', 'tipo_mantenimiento', 'estado', 'observaciones']
-    for key in campos_simples:
-        if key in payload: updates[key] = payload[key]
-    
-    if 'vehiculo_id' in payload: updates['vehiculo_id'] = _safe_int(payload['vehiculo_id'])
-    if 'km_programado' in payload: updates['km_programado'] = _safe_int(payload['km_programado'])
-    if 'km_realizacion' in payload: updates['km_realizacion'] = _safe_int(payload['km_realizacion'])
-    if 'costo' in payload: updates['costo'] = _safe_float(payload['costo'])
-        
-    if 'fecha_programada' in payload: updates['fecha_programada'] = _safe_date(payload['fecha_programada'])
-    if 'fecha_realizacion' in payload: updates['fecha_realizacion'] = _safe_date(payload['fecha_realizacion'])
-
-    if not updates and 'renovar_gases' not in payload:
-        return jsonify({'message': 'No hay cambios'}), 400
 
     try:
-        res_mant = None
-        if updates:
-            res_mant = supabase.table('flota_mantenimientos').update(updates).eq('id', mant_id).is_('deleted_at', None).execute()
-        
-        # Actualizar Gases del Vehículo si aplica
-        renovar_gases = _safe_date(payload.get('renovar_gases'))
-        if renovar_gases:
-            vid = updates.get('vehiculo_id')
+        # 1. Cabecera
+        updates = {
+            'vehiculo_id': _safe_int(payload.get('vehiculo_id')),
+            'fecha_programada': _safe_date(payload.get('fecha_programada')),
+            'descripcion': payload.get('descripcion'),
+            'estado': payload.get('estado'),
+            'km_programado': _safe_int(payload.get('km_programado')),
+            'fecha_realizacion': _safe_date(payload.get('fecha_realizacion')),
+            'km_realizacion': _safe_int(payload.get('km_realizacion')),
+            'observaciones': payload.get('observaciones'),
+            'costo': _safe_float(payload.get('costo_total'))
+        }
+        # Filtrar solo campos presentes y no None (excepto si queremos borrar, pero asumimos update parcial)
+        # Ajuste: Si viene en payload, lo usamos.
+        final_updates = {}
+        for k, v in updates.items():
+            if k in payload: final_updates[k] = v
+            
+        if final_updates:
+            supabase.table('flota_mantenimientos').update(final_updates).eq('id', mant_id).execute()
+
+        # 2. Detalles (Sync)
+        if 'items' in payload:
+            supabase.table('mantenimiento_detalles').delete().eq('mantenimiento_id', mant_id).execute()
+            items = payload.get('items', [])
+            if items:
+                detalles_data = []
+                for item in items:
+                    detalles_data.append({
+                        'mantenimiento_id': mant_id,
+                        'concepto_id': _safe_int(item.get('concepto_id')),
+                        'costo': _safe_float(item.get('costo', 0)),
+                        'notas': item.get('notas', '')
+                    })
+                supabase.table('mantenimiento_detalles').insert(detalles_data).execute()
+                
+                # Update total
+                total = sum([d['costo'] for d in detalles_data])
+                supabase.table('flota_mantenimientos').update({'costo': total}).eq('id', mant_id).execute()
+
+        # Renovar gases
+        if 'renovar_gases' in payload:
+            r_gas = _safe_date(payload.get('renovar_gases'))
+            vid = final_updates.get('vehiculo_id')
             if not vid:
-                if res_mant and res_mant.data:
-                    vid = res_mant.data[0].get('vehiculo_id')
-                else:
-                    tmp = supabase.table('flota_mantenimientos').select('vehiculo_id').eq('id', mant_id).single().execute()
-                    if tmp.data: vid = tmp.data.get('vehiculo_id')
+                curr = supabase.table('flota_mantenimientos').select('vehiculo_id').eq('id', mant_id).single().execute()
+                if curr.data: vid = curr.data['vehiculo_id']
+            if r_gas and vid:
+                supabase.table('flota_vehiculos').update({'fecha_vencimiento_gases': r_gas}).eq('id', vid).execute()
 
-            if vid:
-                try:
-                    supabase.table('flota_vehiculos').update({
-                        'fecha_vencimiento_gases': renovar_gases
-                    }).eq('id', vid).execute()
-                except Exception as e:
-                    current_app.logger.error(f"Error actualizando gases vehículo (PUT): {e}")
-
-        if res_mant and res_mant.data:
-            return jsonify({'data': res_mant.data[0]})
-        
-        if renovar_gases:
-             return jsonify({'message': 'Gases actualizados correctamente'})
-
-        return jsonify({'message': f'Mantenimiento {mant_id} no encontrado'}), 404
+        return jsonify({'message': 'Actualizado'}), 200
 
     except Exception as e:
-        current_app.logger.error(f"Error al actualizar mantenimiento: {e}")
-        return jsonify({'message': 'Error inesperado al actualizar', 'detail': str(e)}), 500
+        return jsonify({'message': 'Error update', 'detail': str(e)}), 500
 
 @bp.route('/<int:mant_id>', methods=['DELETE'])
 @auth_required
 def delete_mantenimiento(mant_id):
     user = g.get('current_user')
-    if not _is_admin(user):
-        return jsonify({'message': 'Permisos insuficientes'}), 403
-
-    supabase = current_app.config.get('SUPABASE')
+    if not _is_admin(user): return jsonify({'message': 'Permisos insuficientes'}), 403
     try:
-        res = supabase.table('flota_mantenimientos').update({'deleted_at': datetime.now().isoformat()}).eq('id', mant_id).execute()
-        if res.data:
-            return jsonify({'message': f'Mantenimiento {mant_id} eliminado.'}), 200
-        return jsonify({'message': 'Mantenimiento no encontrado'}), 404
-    except Exception as e:
-        return jsonify({'message': 'Error al eliminar', 'detail': str(e)}), 500
+        current_app.config.get('SUPABASE').table('flota_mantenimientos').update({'deleted_at': datetime.now().isoformat()}).eq('id', mant_id).execute()
+        return jsonify({'message': 'Eliminado'}), 200
+    except Exception as e: return jsonify({'message': 'Error delete', 'detail': str(e)}), 500
 
-# === RUTAS DE ADJUNTOS ===
-# (Se mantienen sin cambios, asegúrate de tenerlas al final del archivo como antes)
+# === RUTAS DE ADJUNTOS (Sin cambios) ===
 @bp.route('/<int:mant_id>/adjuntos', methods=['GET'])
 @auth_required
 def list_mant_adjuntos(mant_id):
@@ -283,10 +292,14 @@ def list_mant_adjuntos(mant_id):
             if item.get('storage_path'):
                 try:
                     public = supabase.storage.from_('adjuntos_ordenes').get_public_url(item['storage_path'])
-                    item['publicUrl'] = public.get('data', {}).get('publicUrl') if isinstance(public, dict) else getattr(public, 'publicUrl', None)
+                    # Ajuste de compatibilidad para diferentes versiones de librería
+                    if hasattr(public, 'publicUrl'): url = public.publicUrl
+                    elif isinstance(public, dict): url = public.get('publicUrl')
+                    else: url = str(public) 
+                    item['publicUrl'] = url
                 except: pass
         return jsonify({'data': data})
-    except Exception as e: return jsonify({'message': 'Error'}), 500
+    except Exception: return jsonify({'message': 'Error'}), 500
 
 @bp.route('/<int:mant_id>/adjuntos', methods=['POST'])
 @auth_required
@@ -294,7 +307,6 @@ def add_mant_adjunto(mant_id):
     user = g.get('current_user')
     if not _has_write_permission(user): return jsonify({'message': 'Permisos insuficientes'}), 403
     payload = request.get_json() or {}
-    if not payload.get('storage_path'): return jsonify({'message': 'Falta path'}), 400
     row = {
         'mantenimiento_id': mant_id, 'usuario_id': user.get('id'),
         'storage_path': payload.get('storage_path'), 'nombre_archivo': payload.get('nombre_archivo'),

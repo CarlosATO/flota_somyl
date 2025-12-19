@@ -924,7 +924,42 @@ th.sticky-col {
     font-size: 0.8125rem;
     color: #475569;
     border: 1px solid #e2e8f0;
-}/* === RESPONSIVE === */
+}
+
+/* === Estilos para filtros tipo Excel === */
+.filter-row th {
+    background-color: #f1f5f9;
+    padding: 4px 8px;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.filter-input {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    box-sizing: border-box; /* Para que no se salga de la celda */
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+/* Ajuste para que las celdas sticky funcionen con doble fila de header */
+.reportes-table thead tr:nth-child(1) th {
+    top: 0;
+    z-index: 20;
+}
+
+.reportes-table thead tr:nth-child(2) th {
+    top: 40px; /* Ajusta según la altura de tu primera fila */
+    z-index: 20;
+}
+
+/* === RESPONSIVE === */
 @media (max-width: 1200px) {
   .reportes-table {
     font-size: 0.8rem;
@@ -935,3 +970,106 @@ th.sticky-col {
     padding: 0.5rem 0.75rem;
   }
 }
+
+/* --- ESTILOS DRAWER (PANEL LATERAL) --- */
+.rep-drawer-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.3); /* Fondo oscuro suave */
+    z-index: 1000;
+    display: flex;
+    justify-content: flex-end; /* Alinea a la derecha */
+}
+
+.rep-drawer {
+    width: 500px;
+    max-width: 90vw;
+    height: 100%;
+    background: #fff;
+    box-shadow: -5px 0 25px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    animation: slideInRight 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+/* Header del Drawer */
+.rep-drawer-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f9fafb;
+}
+
+.rep-drawer-title h2 { margin: 0; font-size: 1.25rem; color: #111827; }
+.rep-drawer-title p { margin: 4px 0 0; color: #6b7280; font-size: 0.875rem; }
+
+.rep-close-btn {
+    background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer;
+}
+.rep-close-btn:hover { color: #111827; }
+
+/* Contenido */
+.rep-drawer-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Secciones internas */
+.rep-section { background: #fff; }
+.rep-section-title {
+    font-size: 0.85rem; font-weight: 700; text-transform: uppercase; 
+    color: #6b7280; margin-bottom: 12px; letter-spacing: 0.5px;
+    border-bottom: 2px solid #f3f4f6; padding-bottom: 8px;
+}
+
+/* Grid de Info */
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.info-box { background: #f9fafb; padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb; }
+.info-label { display: block; font-size: 0.75rem; color: #6b7280; margin-bottom: 4px; }
+.info-val { font-weight: 600; color: #1f2937; font-size: 0.95rem; }
+
+/* Lista de Documentos en Drawer */
+.doc-list { display: flex; flex-direction: column; gap: 10px; }
+.doc-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px; border: 1px solid #f3f4f6; border-radius: 6px;
+}
+.doc-name { font-size: 0.9rem; font-weight: 500; color: #374151; }
+
+/* Botón de Acción Principal (Rutas) */
+.action-area {
+    margin-top: 10px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e7eb;
+}
+.btn-rutas {
+    width: 100%;
+    background-color: #2563eb; /* Azul intenso */
+    color: white;
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s;
+}
+.btn-rutas:hover { background-color: #1d4ed8; }

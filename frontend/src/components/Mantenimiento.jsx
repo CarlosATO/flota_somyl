@@ -50,7 +50,7 @@ const formatCurrency = (value) => {
     } catch (e) { return String(value); }
 };
 
-// --- UPLOADER ---
+// --- UPLOADER (Mantenido intacto) ---
 const MantFileUploader = ({ mantId, onUploadSuccess, disabled }) => {
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState(null);
@@ -105,7 +105,7 @@ const MantFileUploader = ({ mantId, onUploadSuccess, disabled }) => {
     );
 };
 
-// --- ADJUNTOS LIST ---
+// --- ADJUNTOS LIST (Mantenido intacto) ---
 const MantAdjuntosList = ({ adjuntos, loading, onDelete }) => {
     const openPreview = async (adj) => {
         if (!adj) return;
@@ -145,94 +145,181 @@ const MantAdjuntosList = ({ adjuntos, loading, onDelete }) => {
     );
 };
 
-// --- MODAL FORMULARIO ---
+// --- MODAL FORMULARIO ACTUALIZADO ---
 const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento, apiError, submitting }) => {
-    const [form, setForm] = useState({});
+    // Estado principal del formulario
+    const [header, setHeader] = useState({});
+    // Estado para las líneas de detalle (Array de objetos)
+    const [items, setItems] = useState([]);
+    
     const [activeTab, setActiveTab] = useState('programacion');
+    
+    // Listas maestras
     const [vehiculosList, setVehiculosList] = useState([]);
+    const [categoriasList, setCategoriasList] = useState([]);
+    const [conceptosList, setConceptosList] = useState([]);
+    
     const [loadingLists, setLoadingLists] = useState(false);
     const [adjuntos, setAdjuntos] = useState([]);
     const [loadingAdjuntos, setLoadingAdjuntos] = useState(false);
 
-    const requiredFields = ['vehiculo_id', 'descripcion', 'fecha_programada'];
     const mantIdActual = editingMantenimiento?.id;
 
-    // Helper para encontrar vehículo seleccionado y sus datos de gases
-    const selectedVehiculo = useMemo(() => 
-        vehiculosList.find(v => String(v.id) === String(form.vehiculo_id)), 
-        [vehiculosList, form.vehiculo_id]
-    );
-
+    // --- CARGA DE DATOS ---
     useEffect(() => {
         if (!isOpen) return;
-        const fetchVehicles = async () => {
+        const fetchMasters = async () => {
             setLoadingLists(true);
             try {
-                const resVeh = await apiFetch('/api/vehiculos/?per_page=500');
+                // Fetch paralelo para velocidad
+                const [resVeh, resCat, resCon] = await Promise.all([
+                    apiFetch('/api/vehiculos/?per_page=500'),
+                    supabase.from('categorias_mantencion').select('*').eq('activo', true),
+                    supabase.from('conceptos_gasto').select('*')
+                ]);
+
                 if (resVeh.status === 200) setVehiculosList(resVeh.data.data || []);
+                if (resCat.data) setCategoriasList(resCat.data);
+                if (resCon.data) setConceptosList(resCon.data);
+
             } catch (e) { console.error(e); }
             setLoadingLists(false);
         };
-        fetchVehicles();
+        fetchMasters();
     }, [isOpen]);
 
-    const fetchAdjuntos = useCallback(async (mantId) => {
+    // Fetch de adjuntos y detalles existentes
+    const fetchDetallesYAdjuntos = useCallback(async (mantId) => {
         setLoadingAdjuntos(true);
         try {
-            const res = await apiFetch(`/api/mantenimiento/${mantId}/adjuntos`);
-            if (res.status === 200) setAdjuntos(res.data.data || []);
+            // 1. Adjuntos (via API Backend)
+            const resAdj = await apiFetch(`/api/mantenimiento/${mantId}/adjuntos`);
+            if (resAdj.status === 200) setAdjuntos(resAdj.data.data || []);
+
+            // 2. Detalles (Podemos consultar directo a supabase para armar el array de items)
+            const { data: detalles } = await supabase
+                .from('mantenimiento_detalles')
+                .select('*, concepto:conceptos_gasto(categoria_id)')
+                .eq('mantenimiento_id', mantId);
+
+            if (detalles && detalles.length > 0) {
+                // Mapear al formato que usa el formulario
+                const itemsForm = detalles.map(d => ({
+                    id: d.id, // ID interno del detalle
+                    categoria_id: d.concepto?.categoria_id || '', // Necesario para el select padre
+                    concepto_id: d.concepto_id,
+                    costo: d.costo,
+                    notas: d.notas || ''
+                }));
+                setItems(itemsForm);
+            } else {
+                // Caso Legacy: Si no hay detalles en la tabla nueva, tratar de usar los datos viejos de la cabecera si existen
+                if (editingMantenimiento?.concepto_id) {
+                     // Recuperar categoría del concepto legacy
+                     const conceptoLegacy = conceptosList.find(c => c.id === editingMantenimiento.concepto_id);
+                     setItems([{
+                         categoria_id: conceptoLegacy?.categoria_id || '',
+                         concepto_id: editingMantenimiento.concepto_id,
+                         costo: editingMantenimiento.costo || 0,
+                         notas: ''
+                     }]);
+                } else {
+                    setItems([]); // Lista vacía
+                }
+            }
+
         } catch(e) { console.error(e); }
         setLoadingAdjuntos(false);
-    }, []);
+    }, [editingMantenimiento, conceptosList]);
 
+    // Inicialización del Formulario
     useEffect(() => {
         if (editingMantenimiento) {
-            setForm({
+            setHeader({
                 vehiculo_id: editingMantenimiento.vehiculo_id || '',
-                descripcion: editingMantenimiento.descripcion || '',
+                descripcion: editingMantenimiento.descripcion || '', // Observación General SIEMPRE VISIBLE
                 tipo_mantenimiento: editingMantenimiento.tipo_mantenimiento || 'PREVENTIVO',
                 estado: editingMantenimiento.estado || 'PENDIENTE',
                 fecha_programada: formatDateForInput(editingMantenimiento.fecha_programada),
                 km_programado: editingMantenimiento.km_programado || '',
                 fecha_realizacion: formatDateForInput(editingMantenimiento.fecha_realizacion),
                 km_realizacion: editingMantenimiento.km_realizacion || '',
-                costo: editingMantenimiento.costo || '',
-                observaciones: editingMantenimiento.observaciones || '',
-                renovar_gases: '',
+                observaciones: editingMantenimiento.observaciones || '', // Observaciones de cierre
             });
-            fetchAdjuntos(editingMantenimiento.id);
+            // Cargar items si ya tenemos las listas maestras cargadas
+            if (conceptosList.length > 0) {
+                fetchDetallesYAdjuntos(editingMantenimiento.id);
+            }
         } else {
-            setForm({
-                vehiculo_id: '', descripcion: '', tipo_mantenimiento: 'PREVENTIVO',
+            // NUEVO REGISTRO
+            setHeader({
+                vehiculo_id: '', descripcion: '', tipo_mantenimiento: 'PREVENTIVO', 
                 estado: 'PENDIENTE', fecha_programada: formatDateForInput(new Date().toISOString()),
-                km_programado: '', fecha_realizacion: '', km_realizacion: '',
-                costo: '', observaciones: '', renovar_gases: ''
+                km_programado: '', fecha_realizacion: '', km_realizacion: '', observaciones: ''
             });
+            // Iniciamos con una línea vacía para facilitar al usuario
+            setItems([{ categoria_id: '', concepto_id: '', costo: 0, notas: '' }]);
             setAdjuntos([]);
         }
         setActiveTab('programacion');
-    }, [editingMantenimiento, isOpen, fetchAdjuntos]);
+    }, [editingMantenimiento, isOpen, conceptosList]); // Dependencia added: conceptosList
 
-    const handleChange = (e) => {
-        const { name, value, type } = e.target;
-        let finalValue = value;
-        if (type === 'number' || name.endsWith('_id')) {
-            finalValue = value ? (name === 'costo' ? parseFloat(value) : parseInt(value, 10)) : '';
-        } else if (typeof value === 'string' && name !== 'descripcion' && name !== 'observaciones' && type !== 'date') {
-            finalValue = value.toUpperCase();
-        }
-        if (name === 'descripcion' || name === 'observaciones') finalValue = value;
-        setForm({ ...form, [name]: finalValue });
+    // --- MANEJO DE CABECERA ---
+    const handleHeaderChange = (e) => {
+        const { name, value } = e.target;
+        setHeader(prev => ({ ...prev, [name]: value }));
     };
 
+    // --- MANEJO DE ITEMS (LÓGICA FACTURA) ---
+    const handleAddItem = () => {
+        setItems(prev => [...prev, { categoria_id: '', concepto_id: '', costo: 0, notas: '' }]);
+    };
+
+    const handleRemoveItem = (index) => {
+        const newItems = [...items];
+        newItems.splice(index, 1);
+        setItems(newItems);
+    };
+
+    const handleItemChange = (index, field, value) => {
+        const newItems = [...items];
+        newItems[index][field] = value;
+        
+        // Si cambia categoría, limpiar concepto
+        if (field === 'categoria_id') {
+            newItems[index]['concepto_id'] = '';
+        }
+        setItems(newItems);
+    };
+
+    // Calcular Totales
+    const totalCosto = useMemo(() => {
+        return items.reduce((sum, item) => sum + (parseFloat(item.costo) || 0), 0);
+    }, [items]);
+
+    // Guardar
     const handleSubmit = (e) => {
         e.preventDefault();
-        const payload = { ...form };
+        
+        const payload = {
+            ...header,
+            costo_total: totalCosto, // Enviamos el total calculado
+            items: items.filter(i => i.concepto_id) // Enviamos solo items que tengan concepto seleccionado
+        };
+
+        // Convertir vacíos a nulls en header
         Object.keys(payload).forEach(key => {
-            if (payload[key] === '' || payload[key] === undefined || payload[key] === null) payload[key] = null;
+            if (payload[key] === '' && key !== 'items') payload[key] = null;
         });
+
         onSave(payload, mantIdActual);
     };
+
+    // Helpers UI
+    const selectedVehiculo = vehiculosList.find(v => String(v.id) === String(header.vehiculo_id));
+    const isFormInvalid = !header.vehiculo_id || !header.fecha_programada;
+
+    const canUpload = !!mantIdActual;
 
     const handleUploadSuccess = (res) => {
         setAdjuntos(prev => [res.data, ...prev]);
@@ -247,10 +334,6 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
             else throw new Error(res.data?.message);
         } catch (err) { alert(`Error: ${err.message}`); }
     };
-
-    const isFormInvalid = requiredFields.some(field => !form[field]);
-    const canUpload = !!mantIdActual;
-
     if (!isOpen) return null;
 
     return (
@@ -258,8 +341,8 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
             <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header-pro">
                     <div>
-                        <h3>{editingMantenimiento ? 'Editar Mantenimiento' : 'Nueva Orden de Mantenimiento'}</h3>
-                        <p className="modal-subtitle">{editingMantenimiento ? `Orden #${editingMantenimiento.id}` : 'Registra la intervención'}</p>
+                        <h3>{editingMantenimiento ? `Editar Orden #${editingMantenimiento.id}` : 'Nueva Orden de Trabajo'}</h3>
+                        <p className="modal-subtitle">Gestión de Servicios Múltiples</p>
                     </div>
                     <button onClick={onClose} className="modal-close-pro">×</button>
                 </div>
@@ -268,69 +351,136 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                     {apiError && <div className="modal-error-pro">⚠️ {apiError}</div>}
 
                     <div className="modal-tabs">
-                        <button type="button" className={`tab-button ${activeTab === 'programacion' ? 'active' : ''}`} onClick={() => setActiveTab('programacion')}>📅 1. Detalle</button>
-                        <button type="button" className={`tab-button ${activeTab === 'cierre' ? 'active' : ''}`} onClick={() => setActiveTab('cierre')}>🏁 2. Ejecución</button>
-                        <button type="button" className={`tab-button ${activeTab === 'adjuntos' ? 'active' : ''}`} onClick={() => setActiveTab('adjuntos')}>📎 3. Adjuntos ({adjuntos.length})</button>
+                        <button type="button" className={`tab-button ${activeTab === 'programacion' ? 'active' : ''}`} onClick={() => setActiveTab('programacion')}>🛠️ Servicios</button>
+                        <button type="button" className={`tab-button ${activeTab === 'cierre' ? 'active' : ''}`} onClick={() => setActiveTab('cierre')}>📝 Cierre</button>
+                        <button type="button" className={`tab-button ${activeTab === 'adjuntos' ? 'active' : ''}`} onClick={() => setActiveTab('adjuntos')}>📎 Adjuntos ({adjuntos.length})</button>
                     </div>
 
                     <div className="modal-body-pro">
-                        {loadingLists && <div className="loading-state">Cargando...</div>}
+                        {loadingLists && <div className="loading-state">Cargando datos...</div>}
 
                         {activeTab === 'programacion' && !loadingLists && (
                             <div className="tab-content">
                                 <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Detalles Básicos</h4>
-                                    <div className="form-grid-2">
-                                        <div className="form-group-pro">
-                                            <label>Vehículo (Placa) *</label>
-                                            <select name="vehiculo_id" value={form.vehiculo_id} onChange={handleChange} required>
-                                                <option value="">Seleccionar vehículo</option>
-                                                {vehiculosList.map(v => (<option key={v.id} value={v.id}>{v.placa} - {v.marca} {v.modelo}</option>))}
-                                            </select>
-                                            {selectedVehiculo && (
-                                                <div style={{marginTop: '8px', padding: '8px', background: '#f5f5f5', borderRadius: '4px', fontSize: '0.85rem'}}>
-                                                    <strong>Gases: </strong>
-                                                    {selectedVehiculo.gases_estado === 'VENCIDO' && <span style={{color:'#d32f2f', fontWeight:'bold'}}>⚠️ VENCIDO ({formatLocalDate(selectedVehiculo.fecha_vencimiento_gases)})</span>}
-                                                    {selectedVehiculo.gases_estado === 'POR_VENCER' && <span style={{color:'#f57c00', fontWeight:'bold'}}>⏱️ POR VENCER ({formatLocalDate(selectedVehiculo.fecha_vencimiento_gases)})</span>}
-                                                    {selectedVehiculo.gases_estado === 'OK' && <span style={{color:'#388e3c', fontWeight:'bold'}}>✅ OK ({formatLocalDate(selectedVehiculo.fecha_vencimiento_gases)})</span>}
-                                                    {(!selectedVehiculo.gases_estado || selectedVehiculo.gases_estado === 'SIN_DATO') && <span style={{color:'#999'}}>Sin información</span>}
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Tipo</label>
-                                            <select name="tipo_mantenimiento" value={form.tipo_mantenimiento} onChange={handleChange}>
-                                                <option value="PREVENTIVO">PREVENTIVO</option>
-                                                <option value="CORRECTIVO">CORRECTIVO</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="form-group-pro" style={{marginTop: '1rem'}}>
-                                        <label>Descripción *</label>
-                                        <textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows="3" className="textarea-pro" required placeholder="Ej: Cambio de aceite..."></textarea>
-                                    </div>
-                                </div>
-                                <div className="form-section-pro">
-                                    <h4 className="section-title-pro">Planificación</h4>
                                     <div className="form-grid-3">
                                         <div className="form-group-pro">
-                                            <label>Fecha Programada *</label>
-                                            <input name="fecha_programada" type="date" value={form.fecha_programada} onChange={handleChange} required />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>KM Programado</label>
-                                            <input name="km_programado" type="number" value={form.km_programado} onChange={handleChange} />
-                                        </div>
-                                        <div className="form-group-pro">
-                                            <label>Estado</label>
-                                            <select name="estado" value={form.estado} onChange={handleChange}>
-                                                <option value="PENDIENTE">PENDIENTE</option>
-                                                <option value="PROGRAMADO">PROGRAMADO</option>
-                                                <option value="EN_TALLER">EN_TALLER</option>
-                                                <option value="FINALIZADO">FINALIZADO</option>
-                                                <option value="CANCELADO">CANCELADO</option>
+                                            <label>Vehículo *</label>
+                                            <select name="vehiculo_id" value={header.vehiculo_id} onChange={handleHeaderChange} required>
+                                                <option value="">-- Seleccionar --</option>
+                                                {vehiculosList.map(v => (<option key={v.id} value={v.id}>{v.placa} - {v.modelo}</option>))}
                                             </select>
                                         </div>
+                                        <div className="form-group-pro">
+                                            <label>Fecha Programada *</label>
+                                            <input name="fecha_programada" type="date" value={header.fecha_programada} onChange={handleHeaderChange} required />
+                                        </div>
+                                        <div className="form-group-pro">
+                                            <label>Km Actual</label>
+                                            <input name="km_programado" type="number" value={header.km_programado} onChange={handleHeaderChange} placeholder="Lectura odómetro" />
+                                        </div>
+                                    </div>
+                                    
+                                    {/* OBSERVACIONES GENERALES SIEMPRE VISIBLES */}
+                                    <div className="form-group-pro" style={{marginTop: '10px'}}>
+                                        <label>Observaciones Generales de la Orden</label>
+                                        <textarea 
+                                            name="descripcion" 
+                                            value={header.descripcion} 
+                                            onChange={handleHeaderChange} 
+                                            rows="2" 
+                                            className="textarea-pro" 
+                                            placeholder="Ej: Revisión completa antes de viaje al norte..."
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* TABLA DE ITEMS (FACTURA) */}
+                                <div className="form-section-pro">
+                                    <h4 className="section-title-pro">Servicios a Realizar</h4>
+                                    <div className="items-table-container">
+                                        <table className="items-table">
+                                            <thead>
+                                                <tr>
+                                                    <th style={{width: '25%'}}>Categoría</th>
+                                                    <th style={{width: '25%'}}>Concepto</th>
+                                                    <th style={{width: '15%'}}>Costo (CLP)</th>
+                                                    <th style={{width: '30%'}}>Notas</th>
+                                                    <th style={{width: '5%'}}></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {items.map((item, index) => {
+                                                    const conceptosFiltrados = conceptosList.filter(c => !item.categoria_id || String(c.categoria_id) === String(item.categoria_id));
+                                                    return (
+                                                        <tr key={index}>
+                                                            <td>
+                                                                <select 
+                                                                    className="table-input" 
+                                                                    value={item.categoria_id} 
+                                                                    onChange={(e) => handleItemChange(index, 'categoria_id', e.target.value)}
+                                                                >
+                                                                    <option value="">-- Seleccionar --</option>
+                                                                    {categoriasList.map(cat => (<option key={cat.id} value={cat.id}>{cat.nombre}</option>))}
+                                                                </select>
+                                                            </td>
+                                                            <td>
+                                                                <select 
+                                                                    className="table-input" 
+                                                                    value={item.concepto_id} 
+                                                                    onChange={(e) => handleItemChange(index, 'concepto_id', e.target.value)}
+                                                                    disabled={!item.categoria_id}
+                                                                >
+                                                                    <option value="">-- Seleccionar --</option>
+                                                                    {conceptosFiltrados.map(conc => (<option key={conc.id} value={conc.id}>{conc.nombre}</option>))}
+                                                                </select>
+                                                            </td>
+                                                            <td>
+                                                                <input 
+                                                                    type="number" 
+                                                                    className="table-input text-right" 
+                                                                    value={item.costo} 
+                                                                    onChange={(e) => handleItemChange(index, 'costo', e.target.value)} 
+                                                                    step="1"
+                                                                />
+                                                            </td>
+                                                            <td>
+                                                                <input 
+                                                                    type="text" 
+                                                                    className="table-input" 
+                                                                    value={item.notas} 
+                                                                    onChange={(e) => handleItemChange(index, 'notas', e.target.value)} 
+                                                                    placeholder="Notas adicionales"
+                                                                />
+                                                            </td>
+                                                            <td className="text-center">
+                                                                {items.length > 1 && (
+                                                                    <button 
+                                                                        type="button" 
+                                                                        className="btn-icon-remove" 
+                                                                        onClick={() => handleRemoveItem(index)}
+                                                                        title="Eliminar fila"
+                                                                    >
+                                                                        ×
+                                                                    </button>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr>
+                                                    <td colSpan="5">
+                                                        <button type="button" className="btn-small-pro" onClick={handleAddItem}>+ Agregar Servicio</button>
+                                                    </td>
+                                                </tr>
+                                                <tr className="total-row">
+                                                    <td colSpan="2" className="text-right font-bold">TOTAL:</td>
+                                                    <td className="text-right font-bold">${totalCosto.toLocaleString('es-CL')}</td>
+                                                    <td colSpan="2"></td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
                                     </div>
                                 </div>
                             </div>
@@ -343,16 +493,16 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                                     <div className="form-grid-2">
                                         <div className="form-group-pro">
                                             <label>Fecha de Realización</label>
-                                            <input name="fecha_realizacion" type="date" value={form.fecha_realizacion} onChange={handleChange} />
+                                            <input name="fecha_realizacion" type="date" value={header.fecha_realizacion} onChange={handleHeaderChange} />
                                         </div>
                                         <div className="form-group-pro">
                                             <label>KM Realización</label>
-                                            <input name="km_realizacion" type="number" value={form.km_realizacion} onChange={handleChange} />
+                                            <input name="km_realizacion" type="number" value={header.km_realizacion} onChange={handleHeaderChange} />
                                         </div>
                                     </div>
                                     <div className="form-group-pro" style={{marginTop: '15px', backgroundColor: '#e8f5e9', padding: '12px', borderRadius: '6px', border: '1px solid #c8e6c9'}}>
                                         <label style={{color: '#2e7d32', fontWeight: 'bold', display: 'block', marginBottom: '5px'}}>📄 Actualizar Vencimiento Gases (Opcional)</label>
-                                        <input name="renovar_gases" type="date" value={form.renovar_gases} onChange={handleChange} style={{border: '1px solid #a5d6a7'}} />
+                                        <input name="renovar_gases" type="date" value={header.renovar_gases || ''} onChange={handleHeaderChange} style={{border: '1px solid #a5d6a7'}} />
                                         <small style={{color: '#555', display: 'block', marginTop: '4px'}}>Ingresa la <strong>NUEVA</strong> fecha solo si se renovó el certificado.</small>
                                     </div>
                                 </div>
@@ -361,12 +511,12 @@ const MantenimientoFormModal = ({ isOpen, onClose, onSave, editingMantenimiento,
                                     <div className="form-grid-2">
                                         <div className="form-group-pro">
                                             <label>Costo Total (CLP)</label>
-                                            <input name="costo" type="number" value={form.costo} onChange={handleChange} step="1" />
+                                            <input name="costo" type="number" value={header.costo || ''} onChange={handleHeaderChange} step="1" />
                                         </div>
                                     </div>
                                     <div className="form-group-pro" style={{marginTop: '1rem'}}>
                                         <label>Observaciones</label>
-                                        <textarea name="observaciones" value={form.observaciones} onChange={handleChange} rows="4" className="textarea-pro"></textarea>
+                                        <textarea name="observaciones" value={header.observaciones} onChange={handleHeaderChange} rows="4" className="textarea-pro"></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -502,6 +652,23 @@ function Mantenimiento({ user, token }) {
     const getEstadoBadge = (estado) => `badge-mant-estado badge-estado-${estado?.toLowerCase()}`;
     const getTipoBadge = (tipo) => `badge-mant-tipo badge-tipo-${tipo?.toLowerCase()}`;
 
+    // Helper para mostrar Concepto o Descripción en la tabla
+    const renderConceptoCell = (m) => {
+        if (m.concepto) {
+            return (
+                <div className="concepto-cell">
+                     <div className="concepto-nombre">{m.concepto.nombre}</div>
+                     <div className="concepto-categoria">{m.concepto.categoria?.nombre || '-'}</div>
+                </div>
+            );
+        }
+        return (
+            <div className="concepto-cell">
+                <div className="concepto-descripcion" title={m.descripcion}>{m.descripcion || 'Sin descripción'}</div>
+            </div>
+        );
+    };
+
     if (!token) return <div className="loading-state">Cargando...</div>;
 
     return (
@@ -537,9 +704,16 @@ function Mantenimiento({ user, token }) {
                     <table className="mantenimiento-table">
                         <thead>
                             <tr>
-                                <th>ID</th><th>Estado</th><th>Vehículo</th><th>Tipo</th><th>Descripción</th>
-                                <th>F. Prog.</th><th>KM Prog.</th><th>F. Realiz.</th><th>Costo</th>
-                                {(canWrite || isAdmin) && <th>Acciones</th>}
+                                <th style={{width: '60px'}}>ID</th>
+                                <th style={{width: '120px'}}>Estado</th>
+                                <th style={{width: '160px'}}>Vehículo</th>
+                                <th style={{width: '110px'}}>Tipo</th>
+                                <th style={{width: '280px', minWidth: '250px'}}>Concepto / Detalle</th>
+                                <th style={{width: '100px'}}>F. Prog.</th>
+                                <th style={{width: '90px'}}>KM Prog.</th>
+                                <th style={{width: '100px'}}>F. Realiz.</th>
+                                <th style={{width: '110px'}}>Costo</th>
+                                {(canWrite || isAdmin) && <th style={{width: '120px'}}>Acciones</th>}
                             </tr>
                         </thead>
                         <tbody>
@@ -549,7 +723,7 @@ function Mantenimiento({ user, token }) {
                                     <td><span className={getEstadoBadge(m.estado)}>{m.estado?.replace('_', ' ')}</span></td>
                                     <td><span className="badge-mant-placa">{m.vehiculo?.placa || '-'}</span><br/><small>{m.vehiculo?.marca} {m.vehiculo?.modelo}</small></td>
                                     <td><span className={getTipoBadge(m.tipo_mantenimiento)}>{m.tipo_mantenimiento}</span></td>
-                                    <td style={{ maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={m.descripcion}>{m.descripcion}</td>
+                                    <td>{renderConceptoCell(m)}</td>
                                     <td>{formatLocalDate(m.fecha_programada)}</td>
                                     <td>{m.km_programado || '-'}</td>
                                     <td>{formatLocalDate(m.fecha_realizacion) || '-'}</td>

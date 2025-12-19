@@ -892,4 +892,68 @@ def get_ruta_gps(orden_id):
     except Exception as e:
         current_app.logger.error(f"Error al obtener ruta GPS: {e}")
         return jsonify({'message': 'Error al obtener la ruta'}), 500
+
+
+# --- NUEVO: OBTENER RUTAS COMPLETADAS DE UN VEHÍCULO ---
+@bp.route('/vehiculo/<int:vehiculo_id>/rutas', methods=['GET'])
+@auth_required
+def get_rutas_vehiculo(vehiculo_id):
+    """
+    Obtiene todas las rutas COMPLETADAS de un vehículo específico.
+    Retorna: lista de órdenes con origen, destino, fechas y coordenadas de inicio/fin.
+    """
+    supabase = current_app.config.get('SUPABASE')
+    
+    try:
+        # Obtener órdenes completadas del vehículo
+        res = supabase.table('flota_ordenes').select(
+            'id, origen, destino, fecha_inicio_real, fecha_fin_real, kilometraje_inicio, kilometraje_fin, conductor:flota_conductores(nombre, apellido)'
+        ).eq('vehiculo_id', vehiculo_id).eq('estado', 'completada').order('fecha_fin_real', desc=True).execute()
+        
+        ordenes = res.data or []
+        
+        # Para cada orden, obtener primer y último punto GPS (si existen)
+        resultado = []
+        for orden in ordenes:
+            orden_id = orden.get('id')
+            
+            # Obtener puntos GPS (primero y último)
+            ruta_res = supabase.table('flota_orden_rutas').select(
+                'latitud, longitud, timestamp'
+            ).eq('orden_id', orden_id).order('timestamp').execute()
+            
+            puntos = ruta_res.data or []
+            punto_inicio = puntos[0] if len(puntos) > 0 else None
+            punto_fin = puntos[-1] if len(puntos) > 1 else None
+            
+            # Construir nombre completo del conductor
+            conductor_data = orden.get('conductor', {})
+            conductor_nombre = '-'
+            if conductor_data:
+                nombre = conductor_data.get('nombre', '')
+                apellido = conductor_data.get('apellido', '')
+                conductor_nombre = f"{nombre} {apellido}".strip() or '-'
+            
+            resultado.append({
+                'id': orden_id,
+                'origen': orden.get('origen'),
+                'destino': orden.get('destino'),
+                'fecha_inicio': orden.get('fecha_inicio_real'),
+                'fecha_fin': orden.get('fecha_fin_real'),
+                'km_inicio': orden.get('kilometraje_inicio'),
+                'km_fin': orden.get('kilometraje_fin'),
+                'km_recorridos': (orden.get('kilometraje_fin') or 0) - (orden.get('kilometraje_inicio') or 0),
+                'conductor': conductor_nombre,
+                'punto_inicio': punto_inicio,
+                'punto_fin': punto_fin,
+                'tiene_mapa': len(puntos) > 0
+            })
+        
+        return jsonify({'status': 'success', 'data': resultado}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error al obtener rutas del vehículo: {e}")
+        return jsonify({'status': 'error', 'message': 'Error al cargar rutas'}), 500
+
+
 # Redeploy trigger (no-op): comentario añadido para forzar que el hosting detecte un nuevo commit y vuelva a desplegar.

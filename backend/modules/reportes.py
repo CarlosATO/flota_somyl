@@ -380,21 +380,31 @@ def get_analisis_vehiculos():
         ).is_('deleted_at', None).execute()
         todos_mantenimientos = mantenimientos_res.data or []
 
-        # 5. Obtener Órdenes (Solo necesitamos el max KM por vehículo)
+        # 5. Obtener Órdenes (Max KM y contar viajes completados)
         ordenes_res = supabase.table('flota_ordenes').select(
-            'vehiculo_id, kilometraje_fin'
+            'vehiculo_id, kilometraje_fin, estado'
         ).not_.is_('kilometraje_fin', 'null').execute()
         todas_ordenes = ordenes_res.data or []
 
         # --- PROCESAMIENTO EN MEMORIA (Optimización) ---
 
-        # A. Calcular Max KM Ordenes por vehículo
+        # A. Calcular Max KM Ordenes por vehículo Y contar viajes completados
         max_km_ordenes = {}
+        viajes_completados = {}  # Para contar órdenes COMPLETADAS
+        
         for o in todas_ordenes:
             vid = o.get('vehiculo_id')
             km = int(float(o.get('kilometraje_fin') or 0))
+            estado = o.get('estado', '').upper()
+            
+            # Max KM
             if vid not in max_km_ordenes: max_km_ordenes[vid] = 0
             if km > max_km_ordenes[vid]: max_km_ordenes[vid] = km
+            
+            # Contar viajes completados
+            if estado == 'COMPLETADA':
+                if vid not in viajes_completados: viajes_completados[vid] = 0
+                viajes_completados[vid] += 1
 
         # B. Procesar Mantenimientos (Pendientes y Último Realizado)
         mants_por_vehiculo = {} # Para pendientes
@@ -528,6 +538,9 @@ def get_analisis_vehiculos():
                     gases_obj = {'fecha_vencimiento': fecha_gases, 'dias_restantes': dias_gases, 'estado': estado_gases}
                 except: gases_obj = None
             
+            # -- Contar viajes/rutas completadas --
+            total_viajes = viajes_completados.get(vehiculo_id, 0)
+            
             resultado.append({
                 'id': vehiculo_id,
                 'patente': vehiculo.get('placa'),
@@ -546,6 +559,11 @@ def get_analisis_vehiculos():
                 
                 'costo_mant_pendiente': costo_mant_pendiente,
                 'detalle_mant_pendiente': detalle_mant_pendiente,
+                
+                # NUEVO: Total de viajes/rutas completadas
+                'total_viajes': total_viajes,
+                'tiene_rutas': total_viajes > 0,
+                
                 'gases': gases_obj,
                 'permiso_circulacion': tipos_docs.get('permiso_circulacion'),
                 'revision_tecnica': tipos_docs.get('revision_tecnica'),
@@ -558,3 +576,84 @@ def get_analisis_vehiculos():
     except Exception as e:
         current_app.logger.error(f'Error en analisis_vehiculos: {e}')
         return jsonify({'status': 'error', 'message': f'Error: {str(e)}'}), 500
+
+
+@reportes_bp.route('/gastos_pivot', methods=['GET'])
+@auth_required
+def get_gastos_pivot():
+    """
+    Genera reporte pivote: Filas=Vehículos, Columnas=Conceptos
+    """
+    try:
+        supabase = current_app.config.get('SUPABASE')
+        if not supabase:
+            return jsonify({'status': 'error', 'message': 'Error de configuración: Supabase no disponible'}), 500
+        
+        # Filtros de fecha (Opcional, default últimos 30 días)
+        fecha_ini = request.args.get('fecha_inicio')
+        fecha_fin = request.args.get('fecha_fin')
+        
+        # 1. Obtener Conceptos (para las columnas)
+        conceptos_res = supabase.table('conceptos_gasto').select('id, nombre, categoria:categorias_mantencion(nombre)').order('id').execute()
+        conceptos = conceptos_res.data or []
+        
+        # 2. Obtener Gastos (Mantenimientos)
+        query = supabase.table('flota_mantenimientos').select(
+            'costo, concepto_id, vehiculo:flota_vehiculos(placa)'
+        ).is_('deleted_at', None)
+        
+        if fecha_ini: query = query.gte('fecha_realizacion', fecha_ini)
+        if fecha_fin: query = query.lte('fecha_realizacion', fecha_fin)
+            
+        gastos_res = query.execute()
+        gastos = gastos_res.data or []
+
+        # 3. Procesar Pivote
+        reporte = {} # Clave: Placa, Valor: {concepto_nom: total, ...}
+        
+        # Inicializar estructura
+        columnas = [c['nombre'] for c in conceptos]
+        if 'Otros' not in columnas:
+            columnas.append('Otros')
+
+        for g in gastos:
+            placa = g.get('vehiculo', {}).get('placa', 'Sin Placa')
+            try:
+                costo = float(g.get('costo') or 0)
+            except (ValueError, TypeError):
+                costo = 0
+            cid = g.get('concepto_id')
+            
+            if placa not in reporte:
+                reporte[placa] = {col: 0 for col in columnas}
+                reporte[placa]['TOTAL'] = 0
+            
+            # Buscar nombre del concepto
+            c_nombre = next((c['nombre'] for c in conceptos if c['id'] == cid), None)
+            
+            if c_nombre:
+                if c_nombre not in reporte[placa]:
+                    reporte[placa][c_nombre] = 0
+                reporte[placa][c_nombre] += costo
+            else:
+                # Si es antiguo (no tiene concepto_id), lo mandamos a 'Otros' o 'Sin Clasificar'
+                reporte[placa]['Otros'] = reporte[placa].get('Otros', 0) + costo
+                
+            reporte[placa]['TOTAL'] += costo
+
+        # Convertir a lista para el JSON
+        data_final = []
+        for placa, valores in reporte.items():
+            valores_out = {k: v for k, v in valores.items()}
+            valores_out['patente'] = placa
+            data_final.append(valores_out)
+
+        return jsonify({
+            'status': 'success',
+            'columnas': columnas, # Para que el frontend sepa qué columnas pintar
+            'data': data_final
+        })
+
+    except Exception as e:
+        current_app.logger.error(f'Error pivot gastos: {e}')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
