@@ -500,29 +500,29 @@ def get_analisis_vehiculos():
                 if desc: descripciones.append(f"{tipo}: {desc}")
             detalle_mant_pendiente = " | ".join(descripciones) if descripciones else "-"
             
-            # -- Documentos --
+            # -- Documentos (Lógica Dinámica) --
             docs_vehiculo = [d for d in documentos if d.get('vehiculo_id') == vehiculo_id]
-            tipos_docs = {'permiso_circulacion': None, 'revision_tecnica': None, 'soap': None, 'seguro_obligatorio': None}
+            documentos_status = {} # Aquí guardaremos lo que encontremos, sea lo que sea
             
             for doc in docs_vehiculo:
-                tipo = doc.get('tipo_documento') or ''
-                tipo_norm = _normalize_tipo(tipo)
+                tipo = doc.get('tipo_documento') # Ej: "SEGURO_AUTOMOTRIZ", "SOAP", etc.
+                if not tipo: continue
+                
                 fecha_venc = doc.get('fecha_vencimiento')
                 if fecha_venc:
                     try:
+                        # Calcular días restantes
                         fecha_venc_date = datetime.fromisoformat(fecha_venc.replace('Z', ''))
                         if hasattr(fecha_venc_date, 'date'): fecha_venc_date = fecha_venc_date.date()
                         dias_restantes = (fecha_venc_date - hoy).days
+                        
                         doc_obj = {
                             'fecha_vencimiento': fecha_venc,
                             'dias_restantes': dias_restantes,
                             'estado': 'VIGENTE' if dias_restantes > 30 else 'POR_VENCER' if dias_restantes > 0 else 'VENCIDO'
                         }
-                        if 'permiso' in tipo_norm: tipos_docs['permiso_circulacion'] = doc_obj
-                        elif 'revis' in tipo_norm: tipos_docs['revision_tecnica'] = doc_obj
-                        elif 'soap' in tipo_norm or 'seguro' in tipo_norm:
-                            tipos_docs['soap'] = doc_obj
-                            tipos_docs['seguro_obligatorio'] = doc_obj
+                        # LA CLAVE ES ESTA: Usamos el nombre del tipo como clave directa
+                        documentos_status[tipo] = doc_obj
                     except: continue
 
             # -- Gases --
@@ -541,6 +541,7 @@ def get_analisis_vehiculos():
             # -- Contar viajes/rutas completadas --
             total_viajes = viajes_completados.get(vehiculo_id, 0)
             
+            # Al armar el resultado, inyectamos el diccionario completo
             resultado.append({
                 'id': vehiculo_id,
                 'patente': vehiculo.get('placa'),
@@ -552,23 +553,17 @@ def get_analisis_vehiculos():
                 'costo_por_km': costo_por_km,
                 'total_gastado_mes': round(total_mes, 0),
                 
-                # DATOS ACTUALIZADOS
-                'ultimo_km': km_actual_real, # <--- Ahora es el cálculo robusto
-                'fecha_ultima_mant': fecha_ultima_mant, # <--- Nuevo
-                'km_ultima_mant': km_ultima_mant,       # <--- Nuevo
-                
+                'ultimo_km': km_actual_real,
+                'fecha_ultima_mant': fecha_ultima_mant,
+                'km_ultima_mant': km_ultima_mant,
                 'costo_mant_pendiente': costo_mant_pendiente,
                 'detalle_mant_pendiente': detalle_mant_pendiente,
-                
-                # NUEVO: Total de viajes/rutas completadas
                 'total_viajes': total_viajes,
                 'tiene_rutas': total_viajes > 0,
-                
                 'gases': gases_obj,
-                'permiso_circulacion': tipos_docs.get('permiso_circulacion'),
-                'revision_tecnica': tipos_docs.get('revision_tecnica'),
-                'soap': tipos_docs.get('soap'),
-                'seguro_obligatorio': tipos_docs.get('seguro_obligatorio')
+                
+                # CAMBIO CRÍTICO: Enviamos el paquete dinámico en lugar de campos sueltos
+                'documentos': documentos_status 
             })
         
         return jsonify({'status': 'success', 'data': resultado}), 200

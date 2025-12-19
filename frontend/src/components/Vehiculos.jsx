@@ -314,8 +314,9 @@ const DocumentoFormModal = ({ isOpen, onClose, onSave, onDelete, editingDocument
                                         <select name="tipo_documento" value={form.tipo_documento} onChange={handleChange} required>
                                             <option value="">Seleccionar tipo</option>
                                             <option value="PERMISO_CIRCULACION">PERMISO DE CIRCULACIÓN</option>
-                                            <option value="SEGURO_OBLIGATORIO">SEGURO OBLIGATORIO (SOAP)</option>
                                             <option value="REVISION_TECNICA">REVISIÓN TÉCNICA (ITV/VTV)</option>
+                                            <option value="SEGURO_OBLIGATORIO">SEGURO OBLIGATORIO (SOAP)</option>
+                                            <option value="SEGURO_AUTOMOTRIZ">SEGURO AUTOMOTRIZ (TERCEROS/PROPIO)</option>
                                             <option value="OTROS">OTROS</option>
                                         </select>
                                     </div>

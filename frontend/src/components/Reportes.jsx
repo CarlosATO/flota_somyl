@@ -65,6 +65,11 @@ const VehicleDrawer = ({ vehicle, onClose }) => {
     const [rutaSeleccionada, setRutaSeleccionada] = useState(null);
     const [showMapaModal, setShowMapaModal] = useState(false);
 
+    // Función auxiliar para formatear nombres de documentos
+    const formatHeader = (key) => {
+        return key.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    };
+
     // Cerrar al hacer click fuera
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -106,12 +111,13 @@ const VehicleDrawer = ({ vehicle, onClose }) => {
 
     if (!vehicle) return null;
 
-    // Calculamos estados para visualización en el drawer
+    // Calculamos estado de gases (campo especial)
     const gases = getEstadoGases(vehicle.gases);
-    const permiso = getEstadoDocumento(vehicle.permiso_circulacion);
-    const revision = getEstadoDocumento(vehicle.revision_tecnica);
-    const soap = getEstadoDocumento(vehicle.soap);
-    const seguro = getEstadoDocumento(vehicle.seguro_obligatorio);
+
+    // Obtener todos los tipos de documentos disponibles para este vehículo
+    const tiposDocumentosVehiculo = vehicle.documentos 
+        ? Object.keys(vehicle.documentos).sort()
+        : [];
 
     return (
         <div className="rep-drawer-overlay">
@@ -153,30 +159,33 @@ const VehicleDrawer = ({ vehicle, onClose }) => {
                         </div>
                     </div>
 
-                    {/* SECCIÓN 2: DOCUMENTACIÓN */}
+                    {/* SECCIÓN 2: DOCUMENTACIÓN DINÁMICA */}
                     <div className="rep-section">
                         <div className="rep-section-title">📑 Estado Documental</div>
                         <div className="doc-list">
+                            {/* Control de Gases - Campo especial */}
                             <div className="doc-item">
                                 <span className="doc-name">Control de Gases</span>
                                 <span className={`doc-badge ${gases.clase}`}>{gases.texto}</span>
                             </div>
-                            <div className="doc-item">
-                                <span className="doc-name">Revisión Técnica</span>
-                                <span className={`doc-badge ${revision.clase}`}>{revision.texto}</span>
-                            </div>
-                            <div className="doc-item">
-                                <span className="doc-name">Permiso Circulación</span>
-                                <span className={`doc-badge ${permiso.clase}`}>{permiso.texto}</span>
-                            </div>
-                            <div className="doc-item">
-                                <span className="doc-name">SOAP</span>
-                                <span className={`doc-badge ${soap.clase}`}>{soap.texto}</span>
-                            </div>
-                            <div className="doc-item">
-                                <span className="doc-name">Seguro Obligatorio</span>
-                                <span className={`doc-badge ${seguro.clase}`}>{seguro.texto}</span>
-                            </div>
+                            
+                            {/* Documentos dinámicos */}
+                            {tiposDocumentosVehiculo.length > 0 ? (
+                                tiposDocumentosVehiculo.map(tipo => {
+                                    const doc = vehicle.documentos[tipo];
+                                    const estado = getEstadoDocumento(doc);
+                                    return (
+                                        <div className="doc-item" key={tipo}>
+                                            <span className="doc-name">{formatHeader(tipo)}</span>
+                                            <span className={`doc-badge ${estado.clase}`}>{estado.texto}</span>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div style={{textAlign:'center', padding:'10px', color:'#9ca3af', fontSize:'0.9rem'}}>
+                                    Sin documentos registrados
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -467,16 +476,12 @@ function Reportes({ token }) {
     const [selectedVehiculoId, setSelectedVehiculoId] = useState(null);
     const [showDetalleVehiculoModal, setShowDetalleVehiculoModal] = useState(false);
     
-    // --- ESTADO FILTROS ---
+    // --- ESTADO FILTROS (inicializado sin filtros dinámicos) ---
     const [columnFilters, setColumnFilters] = useState({
         patente: '',
         marcaModelo: '',
         ano: '',
-        gases: '',
-        permiso: '',
-        revision: '',
-        soap: '',
-        seguro: ''
+        gases: ''
     });
 
     // --- CARGA DE DATOS ---
@@ -507,6 +512,23 @@ function Reportes({ token }) {
 
     useEffect(() => { if (token) fetchData(); else { setError('No hay sesión activa'); setLoading(false); } }, [token, fetchData]);
 
+    // Calcular dinámicamente qué tipos de documentos existen en la data cargada
+    const tiposDocumentosEncontrados = useMemo(() => {
+        if (!analisisVehiculos || analisisVehiculos.length === 0) return [];
+        const tiposSet = new Set();
+        analisisVehiculos.forEach(v => {
+            if (v.documentos) {
+                Object.keys(v.documentos).forEach(k => tiposSet.add(k));
+            }
+        });
+        return Array.from(tiposSet).sort(); // Ej: ['PERMISO_CIRCULACION', 'SEGURO_AUTOMOTRIZ', 'SOAP']
+    }, [analisisVehiculos]);
+
+    // Función auxiliar para limpiar el nombre (Ej: PERMISO_CIRCULACION -> Permiso Circulacion)
+    const formatHeader = (key) => {
+        return key.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    };
+
     // --- LÓGICA DE FILTRADO (TIPO EXCEL) ---
     const vehiculosFiltrados = useMemo(() => {
         if (!analisisVehiculos) return [];
@@ -528,10 +550,15 @@ function Reportes({ token }) {
                 } else if (estadoRaw !== columnFilters.gases) return false;
             }
 
-            if (columnFilters.permiso && getEstadoDocumento(vehiculo.permiso_circulacion).raw !== columnFilters.permiso) return false;
-            if (columnFilters.revision && getEstadoDocumento(vehiculo.revision_tecnica).raw !== columnFilters.revision) return false;
-            if (columnFilters.soap && getEstadoDocumento(vehiculo.soap).raw !== columnFilters.soap) return false;
-            if (columnFilters.seguro && getEstadoDocumento(vehiculo.seguro_obligatorio).raw !== columnFilters.seguro) return false;
+            // Filtros dinámicos para documentos (reemplaza los filtros estáticos anteriores)
+            for (const tipo of tiposDocumentosEncontrados) {
+                const filterKey = tipo.toLowerCase();
+                if (columnFilters[filterKey]) {
+                    const doc = vehiculo.documentos && vehiculo.documentos[tipo];
+                    const estadoRaw = getEstadoDocumento(doc).raw;
+                    if (estadoRaw !== columnFilters[filterKey]) return false;
+                }
+            }
 
             return true;
         });
@@ -543,7 +570,17 @@ function Reportes({ token }) {
     };
 
     const handleLimpiarFiltros = () => {
-        setColumnFilters({ patente: '', marcaModelo: '', ano: '', gases: '', permiso: '', revision: '', soap: '', seguro: '' });
+        const baseFilters = {
+            patente: '',
+            marcaModelo: '',
+            ano: '',
+            gases: ''
+        };
+        // Limpiar filtros dinámicos
+        tiposDocumentosEncontrados.forEach(tipo => {
+            baseFilters[tipo.toLowerCase()] = '';
+        });
+        setColumnFilters(baseFilters);
     };
 
     // --- INTERACCIÓN ---
@@ -566,20 +603,23 @@ function Reportes({ token }) {
         if (!vehiculosFiltrados || vehiculosFiltrados.length === 0) return;
         const datosExcel = vehiculosFiltrados.map(v => {
              const gases = getEstadoGases(v.gases);
-             const permiso = getEstadoDocumento(v.permiso_circulacion);
-             const revision = getEstadoDocumento(v.revision_tecnica);
-             const soap = getEstadoDocumento(v.soap);
-             const seguro = getEstadoDocumento(v.seguro_obligatorio);
-             return {
+             
+             // Crear objeto base
+             const row = {
                 "Patente": v.patente, "Marca": v.marca, "Modelo": v.modelo, "Año": v.ano, "Tipo": v.tipo,
                 "Km Actual": v.ultimo_km, "F. Última Mant.": v.fecha_ultima_mant ? formatDate(v.fecha_ultima_mant) : '-',
                 "Mant. Pendiente": v.costo_mant_pendiente || 0,
-                "Gases": gases.texto, 
-                "Permiso Circulación": permiso.texto,
-                "Rev. Técnica": revision.texto, 
-                "SOAP": soap.texto, 
-                "Seguro Obligatorio": seguro.texto
+                "Gases": gases.texto
              };
+             
+             // Agregar columnas dinámicas de documentos
+             tiposDocumentosEncontrados.forEach(tipo => {
+                 const doc = v.documentos && v.documentos[tipo];
+                 const estado = getEstadoDocumento(doc);
+                 row[formatHeader(tipo)] = estado.texto;
+             });
+             
+             return row;
         });
         const worksheet = XLSX.utils.json_to_sheet(datosExcel);
         const workbook = XLSX.utils.book_new();
@@ -600,25 +640,26 @@ function Reportes({ token }) {
             doc.text(`Total de vehículos: ${vehiculosFiltrados.length}`, 14, 34);
             
             // Preparar datos para la tabla
-            const headers = ['Patente', 'Marca/Modelo', 'Año', 'KM', 'Gases', 'Permiso', 'Rev. Téc.', 'SOAP', 'Seguro'];
+            const headers = ['Patente', 'Marca/Modelo', 'Año', 'KM', 'Gases', ...tiposDocumentosEncontrados.map(tipo => formatHeader(tipo))];
             const rows = vehiculosFiltrados.map(v => {
                 const gases = getEstadoGases(v.gases);
-                const permiso = getEstadoDocumento(v.permiso_circulacion);
-                const revision = getEstadoDocumento(v.revision_tecnica);
-                const soap = getEstadoDocumento(v.soap);
-                const seguro = getEstadoDocumento(v.seguro_obligatorio);
                 
-                return [
+                const row = [
                     v.patente,
                     `${v.marca} ${v.modelo}`,
                     v.ano,
                     v.ultimo_km?.toLocaleString() || '0',
-                    gases.texto,
-                    permiso.texto,
-                    revision.texto,
-                    soap.texto,
-                    seguro.texto
+                    gases.texto
                 ];
+                
+                // Agregar columnas dinámicas de documentos
+                tiposDocumentosEncontrados.forEach(tipo => {
+                    const doc = v.documentos && v.documentos[tipo];
+                    const estado = getEstadoDocumento(doc);
+                    row.push(estado.texto);
+                });
+                
+                return row;
             });
             
             // Generar tabla
@@ -629,17 +670,20 @@ function Reportes({ token }) {
                 theme: 'grid',
                 styles: { fontSize: 7, cellPadding: 2 },
                 headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
-                columnStyles: {
-                    0: { cellWidth: 20 },
-                    1: { cellWidth: 35 },
-                    2: { cellWidth: 15 },
-                    3: { cellWidth: 20 },
-                    4: { cellWidth: 20 },
-                    5: { cellWidth: 20 },
-                    6: { cellWidth: 20 },
-                    7: { cellWidth: 20 },
-                    8: { cellWidth: 20 }
-                }
+                columnStyles: (() => {
+                    const styles = {
+                        0: { cellWidth: 20 }, // Patente
+                        1: { cellWidth: 35 }, // Marca/Modelo
+                        2: { cellWidth: 15 }, // Año
+                        3: { cellWidth: 20 }, // KM
+                        4: { cellWidth: 20 }  // Gases
+                    };
+                    // Agregar estilos para columnas dinámicas de documentos
+                    tiposDocumentosEncontrados.forEach((tipo, index) => {
+                        styles[5 + index] = { cellWidth: 20 };
+                    });
+                    return styles;
+                })()
             });
             
             doc.save(`Reporte_Flota_${new Date().toISOString().split('T')[0]}.pdf`);
@@ -726,7 +770,7 @@ function Reportes({ token }) {
                                         <th>F. Última Mant.</th>
                                         <th>Mant. Pend. ($)</th>
                                         <th>Gases</th>
-                                        <th colSpan="4" style={{textAlign:'center', borderBottom:'1px solid #ddd'}}>Estado Documentos</th>
+                                        <th colSpan={tiposDocumentosEncontrados.length} style={{textAlign:'center', borderBottom:'1px solid #ddd'}}>Estado Documentos</th>
                                         <th></th>
                                     </tr>
                                     {/* Filtros */}
@@ -744,81 +788,39 @@ function Reportes({ token }) {
                                                 <option value="critico">🚨 Crítico</option>
                                             </select>
                                         </th>
-                                        <th>
-                                            <select 
-                                                name="permiso" 
-                                                className="filter-input" 
-                                                value={columnFilters.permiso} 
-                                                onChange={handleFilterChange}
-                                                style={{minWidth: '100px'}}
-                                            >
-                                                <option value="">Todos</option>
-                                                <option value="vigente">✅ Vigente</option>
-                                                <option value="por_vencer">⚠️ Por Vencer</option>
-                                                <option value="vencido">🚫 Vencido</option>
-                                                <option value="sin_registro">⚪ Sin Registro</option>
-                                            </select>
-                                        </th>
-                                        <th>
-                                            <select 
-                                                name="revision" 
-                                                className="filter-input" 
-                                                value={columnFilters.revision} 
-                                                onChange={handleFilterChange}
-                                                style={{minWidth: '100px'}}
-                                            >
-                                                <option value="">Todos</option>
-                                                <option value="vigente">✅ Vigente</option>
-                                                <option value="por_vencer">⚠️ Por Vencer</option>
-                                                <option value="vencido">🚫 Vencido</option>
-                                                <option value="sin_registro">⚪ Sin Registro</option>
-                                            </select>
-                                        </th>
-                                        <th>
-                                            <select 
-                                                name="soap" 
-                                                className="filter-input" 
-                                                value={columnFilters.soap} 
-                                                onChange={handleFilterChange}
-                                                style={{minWidth: '100px'}}
-                                            >
-                                                <option value="">Todos</option>
-                                                <option value="vigente">✅ Vigente</option>
-                                                <option value="por_vencer">⚠️ Por Vencer</option>
-                                                <option value="vencido">🚫 Vencido</option>
-                                                <option value="sin_registro">⚪ Sin Registro</option>
-                                            </select>
-                                        </th>
-                                        <th>
-                                            <select 
-                                                name="seguro" 
-                                                className="filter-input" 
-                                                value={columnFilters.seguro} 
-                                                onChange={handleFilterChange}
-                                                style={{minWidth: '100px'}}
-                                            >
-                                                <option value="">Todos</option>
-                                                <option value="vigente">✅ Vigente</option>
-                                                <option value="por_vencer">⚠️ Por Vencer</option>
-                                                <option value="vencido">🚫 Vencido</option>
-                                                <option value="sin_registro">⚪ Sin Registro</option>
-                                            </select>
-                                        </th>
+                                        {/* Filtros dinámicos para documentos */}
+                                        {tiposDocumentosEncontrados.map(tipo => (
+                                            <th key={`filter-${tipo}`}>
+                                                <select 
+                                                    name={tipo.toLowerCase()} 
+                                                    className="filter-input" 
+                                                    value={columnFilters[tipo.toLowerCase()] || ''} 
+                                                    onChange={handleFilterChange}
+                                                    style={{minWidth: '100px'}}
+                                                >
+                                                    <option value="">Todos</option>
+                                                    <option value="vigente">✅ Vigente</option>
+                                                    <option value="por_vencer">⚠️ Por Vencer</option>
+                                                    <option value="vencido">🚫 Vencido</option>
+                                                    <option value="sin_registro">⚪ Sin Registro</option>
+                                                </select>
+                                            </th>
+                                        ))}
                                         <th></th>
                                     </tr>
                                     <tr style={{fontSize:'0.75rem', color:'#666', background:'#f8f9fa'}}>
-                                        <th colSpan="7"></th><th>Permiso</th><th>Rev. Téc.</th><th>SOAP</th><th>Seguro</th><th></th>
+                                        <th colSpan="7"></th>
+                                        {tiposDocumentosEncontrados.map(tipo => (
+                                            <th key={`header-${tipo}`}>{formatHeader(tipo)}</th>
+                                        ))}
+                                        <th></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {vehiculosFiltrados.length === 0 ? (
-                                        <tr><td colSpan="13" className="empty-state-report">No se encontraron coincidencias</td></tr>
+                                        <tr><td colSpan={11 + tiposDocumentosEncontrados.length} className="empty-state-report">No se encontraron coincidencias</td></tr>
                                     ) : (
                                         vehiculosFiltrados.map((vehiculo) => {
-                                            const permiso = getEstadoDocumento(vehiculo.permiso_circulacion);
-                                            const revision = getEstadoDocumento(vehiculo.revision_tecnica);
-                                            const soap = getEstadoDocumento(vehiculo.soap);
-                                            const seguro = getEstadoDocumento(vehiculo.seguro_obligatorio);
                                             const gases = getEstadoGases(vehiculo.gases);
 
                                             return (
@@ -836,10 +838,16 @@ function Reportes({ token }) {
                                                         {formatCurrency(vehiculo.costo_mant_pendiente || 0)}
                                                     </td>
                                                     <td><span className={`doc-badge ${gases.clase}`}>{gases.texto}</span></td>
-                                                    <td><span className={`doc-badge ${permiso.clase}`}>{permiso.texto}</span></td>
-                                                    <td><span className={`doc-badge ${revision.clase}`}>{revision.texto}</span></td>
-                                                    <td><span className={`doc-badge ${soap.clase}`}>{soap.texto}</span></td>
-                                                    <td><span className={`doc-badge ${seguro.clase}`}>{seguro.texto}</span></td>
+                                                    {/* Celdas dinámicas para documentos */}
+                                                    {tiposDocumentosEncontrados.map(tipo => {
+                                                        const doc = vehiculo.documentos && vehiculo.documentos[tipo];
+                                                        const estado = getEstadoDocumento(doc); // Reusa tu helper existente
+                                                        return (
+                                                            <td key={tipo}>
+                                                                <span className={`doc-badge ${estado.clase}`}>{estado.texto}</span>
+                                                            </td>
+                                                        );
+                                                    })}
                                                     <td>
                                                         <button 
                                                             className="btn btn-icon" 
