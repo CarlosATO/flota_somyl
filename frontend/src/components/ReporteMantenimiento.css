@@ -95,6 +95,54 @@
 .rm-btn-primary:hover { background-color: var(--rm-primary-hover); box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2); }
 .rm-btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
 
+.rm-btn-secondary {
+    background-color: #475569;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    height: 42px;
+}
+.rm-btn-secondary:hover { background-color: #334155; }
+.rm-btn-secondary:disabled { opacity: 0.7; cursor: not-allowed; }
+
+/* Tabla de Detalle Mantenimiento */
+.rm-table-detalle {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.rm-table-detalle thead tr:first-child th {
+    padding: 12px 8px;
+    font-size: 0.85rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.rm-table-detalle thead tr:nth-child(2) th {
+    position: sticky;
+    top: 44px;
+    z-index: 10;
+}
+
+.rm-table-detalle tbody td {
+    padding: 10px 8px;
+    border-bottom: 1px solid #334155;
+}
+
+.rm-table-detalle tbody tr:hover {
+    background-color: #1e293b;
+}
+
+.rm-table-responsive {
+    max-height: calc(100vh - 350px);
+    overflow: auto;
+}
+
 /* --- KPI CARDS --- */
 .rm-grid-kpi {
     display: grid;

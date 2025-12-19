@@ -139,3 +139,121 @@ def get_dashboard_mantenimiento():
         import traceback
         traceback.print_exc()
         return jsonify({'message': str(e)}), 500
+
+@reportes_mant_bp.route('/detalle_vehiculos', methods=['GET'])
+@auth_required
+def get_detalle_mantenimiento_vehiculos():
+    """
+    Retorna una matriz de vehículos x conceptos de mantención
+    Cada celda contiene: costo total y fecha de última mantención de ese concepto
+    """
+    print("\n🔍 DEBUG: Detalle Mantenimiento por Vehículo y Concepto")
+    
+    try:
+        supabase = current_app.config['SUPABASE']
+        fecha_ini = request.args.get('fecha_inicio')
+        fecha_fin = request.args.get('fecha_fin')
+        
+        print(f"🗓️ Filtros: fecha_inicio={fecha_ini}, fecha_fin={fecha_fin}")
+        
+        # 1. Traer vehículos
+        res_veh = supabase.table('flota_vehiculos').select('id, placa, marca, modelo, ano').execute()
+        vehiculos = {v['id']: v for v in (res_veh.data or [])}
+        
+        print(f"🚗 DEBUG: Se encontraron {len(vehiculos)} vehículos en total")
+        
+        # 2. Traer mantenimientos en el rango de fechas
+        query = supabase.table('flota_mantenimientos')\
+            .select('id, vehiculo_id, fecha_programada, estado')\
+            .is_('deleted_at', None)
+        
+        if fecha_ini:
+            query = query.gte('fecha_programada', fecha_ini)
+        if fecha_fin:
+            query = query.lte('fecha_programada', fecha_fin)
+            
+        res_mant = query.execute()
+        mantenimientos = res_mant.data or []
+        mant_ids = [m['id'] for m in mantenimientos]
+        
+        print(f"📊 DEBUG: Se encontraron {len(mantenimientos)} mantenimientos en el rango de fechas")
+        
+        # 3. Traer detalles con conceptos
+        if not mant_ids:
+            print("⚠️ No hay mantenimientos en el período seleccionado")
+            return jsonify({'vehiculos': [], 'conceptos': []})
+            
+        res_det = supabase.table('mantenimiento_detalles')\
+            .select('mantenimiento_id, concepto:conceptos_gasto(nombre), costo')\
+            .in_('mantenimiento_id', mant_ids)\
+            .execute()
+        
+        detalles = res_det.data or []
+        
+        print(f"📊 DEBUG: Se encontraron {len(detalles)} detalles de mantenimiento")
+        
+        # 4. Crear mapa de mantenimientos para obtener fechas
+        mant_map = {m['id']: m for m in mantenimientos}
+        
+        # 5. Construir matriz: vehiculo_id -> concepto -> {costo, fecha}
+        matriz = {}
+        conceptos_set = set()
+        
+        for det in detalles:
+            mant_id = det['mantenimiento_id']
+            mant = mant_map.get(mant_id)
+            if not mant:
+                continue
+                
+            vehiculo_id = mant['vehiculo_id']
+            concepto_nombre = det.get('concepto', {}).get('nombre', 'Sin Concepto')
+            costo = float(det.get('costo', 0) or 0)
+            fecha = mant.get('fecha_programada', '')
+            
+            conceptos_set.add(concepto_nombre)
+            
+            if vehiculo_id not in matriz:
+                matriz[vehiculo_id] = {}
+            if concepto_nombre not in matriz[vehiculo_id]:
+                matriz[vehiculo_id][concepto_nombre] = {'costo_total': 0, 'ultima_fecha': fecha}
+            
+            # Acumular costo
+            matriz[vehiculo_id][concepto_nombre]['costo_total'] += costo
+            
+            # Actualizar fecha si es más reciente
+            if fecha > matriz[vehiculo_id][concepto_nombre]['ultima_fecha']:
+                matriz[vehiculo_id][concepto_nombre]['ultima_fecha'] = fecha
+        
+        # 6. Formatear respuesta
+        vehiculos_lista = []
+        for vid, concepto_data in matriz.items():
+            if vid not in vehiculos:
+                continue
+            veh = vehiculos[vid]
+            vehiculos_lista.append({
+                'id': vid,
+                'placa': veh.get('placa', 'S/P'),
+                'marca': veh.get('marca', ''),
+                'modelo': veh.get('modelo', ''),
+                'ano': veh.get('ano'),
+                'conceptos': concepto_data
+            })
+        
+        # Ordenar vehículos por placa
+        vehiculos_lista.sort(key=lambda x: x['placa'])
+        
+        # Lista de conceptos únicos ordenados
+        conceptos_lista = sorted(list(conceptos_set))
+        
+        print(f"✅ Matriz generada: {len(vehiculos_lista)} vehículos × {len(conceptos_lista)} conceptos")
+        
+        return jsonify({
+            'vehiculos': vehiculos_lista,
+            'conceptos': conceptos_lista
+        })
+        
+    except Exception as e:
+        print(f"❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'message': str(e)}), 500
